@@ -1,0 +1,28 @@
+{
+  "title": "深海星海圣女",
+  "badge": "SAR / UR",
+  "subtitle": "3D 交互全息流麻卡（悬停/拖拽/陀螺仪倾摆）",
+  "studio_bg_label": "主题棚拍",
+  "theme_palette": "auto",
+  "holo_pattern": "starburst",
+  "fallback_frame": null,
+  "face_box": "auto",
+  "key_color": "auto",
+  "seed": 20261121,
+  "prop_fx": {
+    "enabled": false,
+    "start_uv": [0.50, 0.72],
+    "tip_uv": [0.50, 0.25],
+    "tint": "auto",
+    "gain": 0.90,
+    "feather_sigma": 1.6,
+    "exclude_skin_in_exclude_zones": true,
+    "mask_polygons": [],
+    "exclude_polygons": []
+  },
+  "motion_motif": {
+    "kind": "none",
+    "color1": "auto",
+    "color2": "auto"
+  }
+}

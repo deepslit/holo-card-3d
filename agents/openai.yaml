@@ -1,0 +1,4 @@
+interface:
+  display_name: "3D Holo Card Studio"
+  short_description: "Turn images into 3D holo quicksand HTML, WebP, and GIF cards"
+  default_prompt: "Use $holo-card-3d to turn this image into a 3D holographic quicksand collector card."

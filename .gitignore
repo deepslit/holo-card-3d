@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+Thumbs.db
+.env
+*.tmp
+
+# Ignore user card project working folders if someone runs inside the repo
+01_raw_layers/
+02_matted/
+03_processed/
+output/
