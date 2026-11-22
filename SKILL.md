@@ -10,7 +10,7 @@ description: >-
 metadata:
   short-description: Turn images into 3D holo quicksand HTML, WebP, and GIF cards
   version: "2.2"
-  compatibility: Portable across Antigravity, Codex, and Claude Code (zero-image-gen, hybrid, or AI-redraw routes); requires Python 3.10+ with numpy, Pillow, and opencv-python.
+  compatibility: Portable across any SKILL.md-compatible agent harness (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, etc.) or standalone CLI; requires Python 3.10+ with numpy, Pillow, and opencv-python.
 ---
 
 # 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.2)
