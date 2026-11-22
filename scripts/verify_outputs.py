@@ -11,6 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
 UNREPLACED_TOKENS = (
     "__TITLE__",
     "__BADGE__",
+    "__BADGE_STYLE__",
     "__SUBTITLE__",
     "__STUDIO_BG_LABEL__",
     "__UI_ACCENT__",
@@ -120,23 +121,63 @@ def check_gif(gif_path: Path, expected_frames: int, expected_dur: int) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify holographic_card HTML/WebP/GIF outputs against frozen v1.0 spec.")
+    parser = argparse.ArgumentParser(description="Verify holographic_card HTML/WebP/GIF outputs against frozen spec.")
     parser.add_argument("--workdir", required=True, type=Path, help="Project workspace directory")
     parser.add_argument("--expected-frames", type=int, default=84)
     parser.add_argument("--expected-dur", type=int, default=60)
     args = parser.parse_args()
 
-    out_dir = args.workdir.resolve() / "output"
+    workdir = args.workdir.resolve()
+    out_dir = workdir / "output"
+    meta_path = workdir / "03_processed" / "scene_meta.json"
+    asset_lint = {}
+    label_mode = "page_only"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            asset_lint = meta.get("asset_lint") or {}
+            label_mode = str(meta.get("label_mode", "page_only"))
+        except Exception:
+            pass
+
+    html_res = check_html(out_dir / "holographic_card.html")
+    webp_res = check_webp(out_dir / "holographic_card.webp", args.expected_frames, args.expected_dur)
+    gif_res = check_gif(out_dir / "holographic_card.gif", args.expected_frames, args.expected_dur)
+
+    anim_fps = round(1000.0 / max(1, args.expected_dur), 2)
+    html_res["target_fps"] = 60
+    webp_res["effective_fps"] = anim_fps
+    gif_res["effective_fps"] = anim_fps
+
+    all_ok = html_res["ok"] and webp_res["ok"] and gif_res["ok"]
+    lint_warnings = asset_lint.get("warnings", [])
+
+    visual_qa = [
+        "cutout_edges: confirm hair, accessories, and semi-transparent edges look natural with zero halo in 03_processed/cutout_check.png",
+        "subject_framing: confirm ears, head, limbs, and props are not clipped at card edges in 03_processed/preview_composite.png & qa_keyframes.png",
+        "lighting_and_contrast: confirm rich dark contrast with zero highlight wash-out across tilted angles in 03_processed/qa_keyframes.png",
+    ]
+    if label_mode == "on_card":
+        visual_qa.append("nameplate_legibility: confirm on-card title & rarity badge text is crisp, centered, and unobstructed")
+
     report = {
-        "workdir": str(args.workdir.resolve()),
+        "workdir": str(workdir),
+        "status": "PASS" if all_ok else "FAIL",
+        "technical_status": "PASS" if all_ok else "FAIL",
         "expected_frames": args.expected_frames,
         "expected_dur_ms": args.expected_dur,
-        "html": check_html(out_dir / "holographic_card.html"),
-        "webp": check_webp(out_dir / "holographic_card.webp", args.expected_frames, args.expected_dur),
-        "gif": check_gif(out_dir / "holographic_card.gif", args.expected_frames, args.expected_dur),
+        "output_specs": {
+            "html": "interactive WebGL2, 60 fps target, 5.2s auto-orbit",
+            "webp": f"690x960 RGBA, {args.expected_frames} frames @ {args.expected_dur}ms (~{anim_fps} fps, {args.expected_frames * args.expected_dur / 1000:.2f}s)",
+            "gif": f"460x640 RGB, {args.expected_frames} frames @ {args.expected_dur}ms (~{anim_fps} fps, {args.expected_frames * args.expected_dur / 1000:.2f}s)",
+        },
+        "html": html_res,
+        "webp": webp_res,
+        "gif": gif_res,
+        "asset_lint_warnings": lint_warnings,
+        "visual_qa_required": visual_qa,
+        "note": "Technical PASS verifies dimensions, frame count, timing, zero-ghosting WebP flags, corner transparency, and WebGL2 structure; it does NOT automatically certify visual aesthetics, anatomy/ear clipping, or typography.",
     }
-    all_ok = report["html"]["ok"] and report["webp"]["ok"] and report["gif"]["ok"]
-    report["status"] = "PASS" if all_ok else "FAIL"
     print(json.dumps(report, indent=2, ensure_ascii=False))
     sys.exit(0 if all_ok else 1)
 

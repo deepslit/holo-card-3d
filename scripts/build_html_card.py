@@ -123,7 +123,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </head>
 <body>
 <canvas id="glcanvas"></canvas>
-<div class="badge" id="badge">
+<div class="badge" id="badge"__BADGE_STYLE__>
   <strong>__BADGE__</strong>
   <span>__TITLE__ · __SUBTITLE__</span>
 </div>
@@ -1303,10 +1303,14 @@ def main():
     meta_json = json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")
     assets_json = json.dumps(assets).replace("</", "<\\/")
 
+    label_mode = str(meta.get("label_mode", "page_only")).lower().strip()
+    badge_style = ' style="display:none"' if label_mode == "hidden" else ""
+
     html_out = (
         HTML_TEMPLATE
         .replace("__TITLE__", title_esc)
         .replace("__BADGE__", badge_esc)
+        .replace("__BADGE_STYLE__", badge_style)
         .replace("__SUBTITLE__", subtitle_esc)
         .replace("__STUDIO_BG_LABEL__", studio_esc)
         .replace("__UI_ACCENT__", accent_str)

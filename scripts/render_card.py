@@ -902,6 +902,7 @@ def main():
     parser.add_argument("--webp-quality", type=int, default=88)
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 4))
     parser.add_argument("--webp-only", action="store_true")
+    parser.add_argument("--preview-only", action="store_true", help="Fast 2-angle pre-render composite preview (03_processed/preview_composite.png)")
     args = parser.parse_args()
 
     workdir = args.workdir.resolve()
@@ -911,6 +912,27 @@ def main():
 
     t_start = time.time()
     n_frames = args.frames
+
+    if args.preview_only:
+        print("Rendering fast 2-angle pre-render composite preview (0 deg + tilted holo + transparent checker)...")
+        _init_worker(str(proc_dir), n_frames)
+        f_tilt = min(n_frames - 1, max(1, int(round(0.22 * n_frames))))
+        _, g0, _ = render_single_frame(0)
+        _, gt, wt = render_single_frame(f_tilt)
+        sq = 24
+        yy_c, xx_c = np.mgrid[0:GIF_H, 0:GIF_W]
+        chk = np.where((((xx_c // sq) + (yy_c // sq)) % 2)[..., None] == 0, np.array([210, 215, 224], np.uint8), np.array([238, 241, 247], np.uint8))
+        wt_small = Image.fromarray(wt, "RGBA").resize((GIF_W, GIF_H), Image.Resampling.LANCZOS)
+        wt_chk = Image.alpha_composite(Image.fromarray(chk, "RGB").convert("RGBA"), wt_small).convert("RGB")
+        sheet = Image.new("RGB", (GIF_W * 3, GIF_H), (10, 12, 18))
+        sheet.paste(Image.fromarray(g0, "RGB"), (0, 0))
+        sheet.paste(Image.fromarray(gt, "RGB"), (GIF_W, 0))
+        sheet.paste(wt_chk, (GIF_W * 2, 0))
+        prev_path = proc_dir / "preview_composite.png"
+        sheet.save(prev_path)
+        print(f"Saved pre-render preview: {prev_path} ({time.time() - t_start:.1f}s)")
+        return
+
     workers = max(1, args.workers)
     print(f"Rendering {n_frames} frames across {workers} worker processes (dur={args.duration_ms}ms, webp_only={args.webp_only})...")
 

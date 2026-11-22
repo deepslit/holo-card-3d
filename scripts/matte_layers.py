@@ -39,23 +39,23 @@ def resolve_fallback_frame(fallback_name: str | None) -> Path:
 
 
 def detect_key_mode(img_path: Path) -> str:
-    """Auto-detect native transparent RGBA vs solid chroma backdrop (green / magenta / blue)."""
+    """Auto-detect native RGBA, chroma screen (green/magenta/blue), uniform solid backdrop, or GrabCut."""
     with Image.open(img_path) as im:
         if im.mode in ("RGBA", "LA", "PA"):
             alpha = np.array(im.convert("RGBA"))[..., 3]
             if float(np.mean(alpha < 12)) > 0.04:
                 return "rgba"
-        rgb = np.array(im.convert("RGB"), dtype=np.float32) / 255.0
+        rgb_u8 = np.array(im.convert("RGB"))
+        rgb = rgb_u8.astype(np.float32) / 255.0
 
     h, w = rgb.shape[:2]
     bw = max(4, min(16, w // 40))
     bh = max(4, min(16, h // 40))
-    border_pixels = np.concatenate([
-        rgb[:bh, :, :].reshape(-1, 3),
-        rgb[-bh:, :, :].reshape(-1, 3),
-        rgb[:, :bw, :].reshape(-1, 3),
-        rgb[:, -bw:, :].reshape(-1, 3),
-    ], axis=0)
+    # Weight top + upper left/right borders higher so waist-up portraits touching bottom edge don't skew backdrop color
+    top_px = rgb[:bh, :, :].reshape(-1, 3)
+    left_px = rgb[: int(h * 0.75), :bw, :].reshape(-1, 3)
+    right_px = rgb[: int(h * 0.75), -bw:, :].reshape(-1, 3)
+    border_pixels = np.concatenate([top_px, left_px, right_px], axis=0)
     med = np.median(border_pixels, axis=0)
     r, g, b = float(med[0]), float(med[1]), float(med[2])
 
@@ -65,8 +65,25 @@ def detect_key_mode(img_path: Path) -> str:
         return "magenta"
     if b - max(r, g) > 0.22:
         return "blue"
-    print(f"Warning: border median RGB=({r:.2f}, {g:.2f}, {b:.2f}) did not clearly match green/magenta/blue; defaulting to 'green'.")
-    return "green"
+
+    # Check if outer backdrop is a uniform/studio solid color (white, cream, black, pastel, etc.)
+    lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB).astype(np.float32)
+    border_lab = np.concatenate([
+        lab[:bh, :, :].reshape(-1, 3),
+        lab[: int(h * 0.75), :bw, :].reshape(-1, 3),
+        lab[: int(h * 0.75), -bw:, :].reshape(-1, 3),
+    ], axis=0)
+    med_lab = np.median(border_lab, axis=0)
+    border_dist = np.linalg.norm(border_lab - med_lab, axis=-1)
+    p80_dist = float(np.percentile(border_dist, 80))
+    if p80_dist < 16.0:
+        return "solid"
+
+    print(
+        f"Note: non-uniform backdrop detected (border RGB=({r:.2f},{g:.2f},{b:.2f}), Lab p80={p80_dist:.1f}); "
+        f"using local GrabCut cutout. Inspect 03_processed/cutout_check.png carefully."
+    )
+    return "grabcut"
 
 
 def remove_small_speckles(alpha: np.ndarray, min_area: int) -> np.ndarray:
@@ -236,10 +253,120 @@ def chroma_matte(img_path: Path, key_color: str = "green", is_frame: bool = Fals
     ]).astype(np.uint8)
 
 
+def solid_backdrop_matte(img_path: Path, is_frame: bool = False) -> np.ndarray:
+    """Cut out a subject from a uniform solid backdrop (white, cream, dark studio, pastel) via Lab flood-fill."""
+    with Image.open(img_path) as im:
+        rgb_u8 = np.array(im.convert("RGB"))
+    rgb = rgb_u8.astype(np.float32) / 255.0
+    lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB).astype(np.float32)
+    h, w = rgb.shape[:2]
+    bw = max(4, min(16, w // 40))
+    bh = max(4, min(16, h // 40))
+
+    border_lab = np.concatenate([
+        lab[:bh, :, :].reshape(-1, 3),
+        lab[: int(h * 0.75), :bw, :].reshape(-1, 3),
+        lab[: int(h * 0.75), -bw:, :].reshape(-1, 3),
+    ], axis=0)
+    bg_lab = np.median(border_lab, axis=0)
+    border_d = np.linalg.norm(border_lab - bg_lab, axis=-1)
+    bg_spread = float(np.percentile(border_d, 75))
+
+    dist = np.linalg.norm(lab - bg_lab, axis=-1)
+    cand_thresh = float(np.clip(2.6 * bg_spread + 12.0, 14.0, 28.0))
+    cand_bg = dist < cand_thresh
+
+    flood = cand_bg.astype(np.uint8) * 255
+    mask = np.zeros((h + 2, w + 2), np.uint8)
+    for x in range(w):
+        if flood[0, x] == 255:
+            cv2.floodFill(flood, mask, (x, 0), 128)
+        if flood[h - 1, x] == 255:
+            cv2.floodFill(flood, mask, (x, h - 1), 128)
+    for y in range(h):
+        if flood[y, 0] == 255:
+            cv2.floodFill(flood, mask, (0, y), 128)
+        if flood[y, w - 1] == 255:
+            cv2.floodFill(flood, mask, (w - 1, y), 128)
+
+    definite_bg = flood == 128
+    if is_frame:
+        definite_bg = definite_bg | (dist < min(16.0, cand_thresh * 0.85))
+
+    bg_u8 = definite_bg.astype(np.uint8) * 255
+    outer_bg = cv2.erode(bg_u8, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))) > 127
+    near_edge_fg = (cv2.dilate(bg_u8, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 127) & (~definite_bg)
+    transition_band = (definite_bg & (~outer_bg)) | near_edge_fg
+
+    lo = float(np.clip(bg_spread * 1.4 + 6.0, 6.0, 18.0))
+    hi = lo + 16.0
+    soft_alpha = np.clip((dist - lo) / (hi - lo), 0.0, 1.0)
+
+    alpha = np.ones((h, w), dtype=np.float32)
+    alpha[outer_bg] = 0.0
+    alpha[transition_band] = soft_alpha[transition_band]
+    alpha = remove_small_speckles(np.clip(alpha, 0.0, 1.0), min_area=24 if is_frame else 48)
+    alpha = cv2.GaussianBlur(alpha, (3, 3), 0.45)
+    alpha[outer_bg] = 0.0
+    rgb_final = extrapolate_fringe_rgb(rgb, alpha)
+
+    return np.dstack([
+        np.clip(rgb_final * 255.0, 0, 255),
+        np.clip(alpha[..., None] * 255.0, 0, 255),
+    ]).astype(np.uint8)
+
+
+def grabcut_matte(img_path: Path, is_frame: bool = False) -> np.ndarray:
+    """Local OpenCV GrabCut fallback for non-uniform backdrops without requiring external ML weights."""
+    with Image.open(img_path) as im:
+        rgb_u8 = np.array(im.convert("RGB"))
+    h, w = rgb_u8.shape[:2]
+    max_side = max(h, w)
+    scale = min(1.0, 840.0 / float(max_side))
+    sw, sh = max(32, int(round(w * scale))), max(32, int(round(h * scale)))
+    bgr_small = cv2.cvtColor(cv2.resize(rgb_u8, (sw, sh), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR)
+
+    gc_mask = np.zeros((sh, sw), np.uint8)
+    bgd_model = np.zeros((1, 65), np.float64)
+    fgd_model = np.zeros((1, 65), np.float64)
+    mx, my = max(2, int(sw * 0.05)), max(2, int(sh * 0.04))
+    rect = (mx, my, max(8, sw - 2 * mx), max(8, sh - int(my * 1.4)))
+    try:
+        cv2.grabCut(bgr_small, gc_mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+        fg_small = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
+    except cv2.error:
+        fg_small = np.ones((sh, sw), dtype=np.float32)
+
+    alpha = cv2.resize(fg_small, (w, h), interpolation=cv2.INTER_LINEAR)
+    alpha = cv2.GaussianBlur(alpha, (5, 5), 1.0)
+    alpha = np.where(alpha < 0.08, 0.0, np.where(alpha > 0.92, 1.0, alpha))
+    alpha = remove_small_speckles(alpha, min_area=24 if is_frame else 64)
+    rgb_f = rgb_u8.astype(np.float32) / 255.0
+    rgb_final = extrapolate_fringe_rgb(rgb_f, alpha)
+    return np.dstack([
+        np.clip(rgb_final * 255.0, 0, 255),
+        np.clip(alpha[..., None] * 255.0, 0, 255),
+    ]).astype(np.uint8)
+
+
+def full_opaque_rgba(img_path: Path) -> np.ndarray:
+    """Keep image fully opaque without background removal (full-bleed artwork mode)."""
+    with Image.open(img_path) as im:
+        rgb_u8 = np.array(im.convert("RGB"))
+    a = np.full(rgb_u8.shape[:2] + (1,), 255, dtype=np.uint8)
+    return np.concatenate([rgb_u8, a], axis=-1)
+
+
 def matte_single_layer(img_path: Path, key_mode_cfg: str, is_frame: bool) -> tuple[np.ndarray, str]:
     mode = detect_key_mode(img_path) if key_mode_cfg == "auto" else key_mode_cfg
     if mode == "rgba":
         return extract_native_rgba(img_path, is_frame=is_frame), mode
+    if mode == "solid":
+        return solid_backdrop_matte(img_path, is_frame=is_frame), mode
+    if mode == "grabcut":
+        return grabcut_matte(img_path, is_frame=is_frame), mode
+    if mode == "none":
+        return full_opaque_rgba(img_path), mode
     return chroma_matte(img_path, key_color=mode, is_frame=is_frame), mode
 
 
@@ -265,7 +392,11 @@ def make_checker_preview(mid_rgba: np.ndarray, fg_rgba: np.ndarray) -> Image.Ima
 def main():
     parser = argparse.ArgumentParser(description="Matte mid & fg card layers cleanly to RGBA.")
     parser.add_argument("--workdir", required=True, type=Path, help="Project workspace containing 01_raw_layers/")
-    parser.add_argument("--key-color", default="auto", choices=["auto", "rgba", "green", "magenta", "blue"])
+    parser.add_argument(
+        "--key-color",
+        default="auto",
+        choices=["auto", "rgba", "green", "magenta", "blue", "solid", "grabcut", "none"],
+    )
     args = parser.parse_args()
 
     workdir = args.workdir.resolve()
@@ -287,12 +418,15 @@ def main():
         raise FileNotFoundError(f"Could not find mid layer in {raw_dir} (expected mid.png/.jpg/.webp)")
 
     fg_path = find_layer(raw_dir, ["fg", "fg_2k", "frame", "border"])
+    fg_is_builtin = False
     if fg_path is None:
         fg_path = resolve_fallback_frame(cfg.get("fallback_frame"))
+        fg_is_builtin = True
         print(f"No custom fg layer found in {raw_dir}; using built-in fallback frame: {fg_path.name}")
 
     mid_rgba, mid_mode = matte_single_layer(mid_path, key_cfg, is_frame=False)
-    fg_rgba, fg_mode = matte_single_layer(fg_path, key_cfg, is_frame=True)
+    fg_key_cfg = "rgba" if fg_is_builtin else key_cfg
+    fg_rgba, fg_mode = matte_single_layer(fg_path, fg_key_cfg, is_frame=True)
 
     mid_pil = Image.fromarray(mid_rgba, "RGBA")
     fg_pil = Image.fromarray(fg_rgba, "RGBA")
@@ -302,6 +436,17 @@ def main():
     black_bg = Image.new("RGBA", mid_pil.size, (0, 0, 0, 255))
     mid_on_black = Image.alpha_composite(black_bg, mid_pil).convert("RGB")
     mid_on_black.save(mat_dir / "mid_on_black.png")
+
+    matte_meta = {
+        "mid_source": mid_path.name,
+        "mid_size": list(mid_pil.size),
+        "mid_mode": mid_mode,
+        "fg_source": fg_path.name,
+        "fg_is_builtin": fg_is_builtin,
+        "fg_size": list(fg_pil.size),
+        "fg_mode": fg_mode,
+    }
+    (mat_dir / "matte_meta.json").write_text(json.dumps(matte_meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
     preview = make_checker_preview(mid_rgba, fg_rgba)
     preview.save(proc_dir / "cutout_check.png")

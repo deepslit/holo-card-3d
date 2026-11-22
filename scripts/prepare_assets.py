@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -61,6 +61,324 @@ def resize_exact_3_4(img: Image.Image, mode: str = "cover") -> Image.Image:
             y0 = (h - nh) // 2
             img = img.crop((0, y0, w, y0 + nh))
     return img.resize((MASTER_W, MASTER_H), Image.Resampling.LANCZOS)
+
+
+def resize_mid_smart(img: Image.Image, fit_mode: str = "auto") -> tuple[Image.Image, str]:
+    """Fit subject RGBA onto 1200x1600 without accidentally slicing limbs/ears on non-3:4 inputs."""
+    img = img.convert("RGBA")
+    w, h = img.size
+    if (w, h) == (MASTER_W, MASTER_H):
+        return img, "exact"
+
+    target_ratio = MASTER_W / MASTER_H
+    src_ratio = w / h
+    ratio_diff = abs(src_ratio - target_ratio) / target_ratio
+
+    mode = fit_mode.lower().strip()
+    if mode == "auto":
+        if ratio_diff <= 0.025:
+            return img.resize((MASTER_W, MASTER_H), Image.Resampling.LANCZOS), "exact_ratio"
+        arr = np.array(img)
+        alpha = arr[..., 3]
+        would_clip = False
+        if src_ratio > target_ratio:
+            nw = int(round(h * target_ratio))
+            x0 = (w - nw) // 2
+            if np.any(alpha[:, :x0] > 40) or np.any(alpha[:, x0 + nw :] > 40):
+                would_clip = True
+        else:
+            nh = int(round(w / target_ratio))
+            y0 = (h - nh) // 2
+            if np.any(alpha[:y0, :] > 40) or np.any(alpha[y0 + nh :, :] > 40):
+                would_clip = True
+        mode = "contain" if would_clip else "cover"
+
+    if mode == "cover":
+        return resize_exact_3_4(img, "cover"), "cover"
+
+    # Contain mode: preserve 100% of subject pixels with clean ~5% breathing margin inside frame rim
+    arr = np.array(img)
+    bottom_touches = float(np.mean(arr[-max(2, h // 80) :, :, 3] > 60)) > 0.08
+    pad_x = int(MASTER_W * 0.05)
+    pad_top = int(MASTER_H * 0.055)
+    pad_bot = int(MASTER_H * (0.02 if bottom_touches else 0.055))
+    avail_w = MASTER_W - 2 * pad_x
+    avail_h = MASTER_H - pad_top - pad_bot
+    scale = min(avail_w / float(w), avail_h / float(h))
+    nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+    resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (MASTER_W, MASTER_H), (0, 0, 0, 0))
+    ox = (MASTER_W - nw) // 2
+    oy = (MASTER_H - pad_bot - nh) if bottom_touches else (pad_top + (avail_h - nh) // 2)
+    canvas.paste(resized, (ox, oy))
+    return canvas, "contain_safe"
+
+
+def synthesize_procedural_bg(mid_rgba: np.ndarray, theme_palette, palettes_db: dict, seed: int = 20261121) -> Image.Image:
+    """Generate a deep atmospheric collector-card backdrop for zero-image-gen single-image workflows."""
+    # Pick harmonious primary aura & secondary highlight colors
+    if isinstance(theme_palette, dict) and "aura" in theme_palette:
+        aura = np.array(theme_palette["aura"], dtype=np.float32)
+        accent = np.array(theme_palette.get("sand1", [0.95, 0.84, 0.55]), dtype=np.float32)
+    elif isinstance(theme_palette, str) and theme_palette in palettes_db:
+        pal = palettes_db[theme_palette]
+        aura = np.array(pal["aura"], dtype=np.float32)
+        accent = np.array(pal["sand1"], dtype=np.float32)
+    else:
+        # Derive harmonious deep atmospheric hue from subject's non-skin chromatic pixels
+        mid_rgb = mid_rgba[..., :3]
+        mid_a = mid_rgba[..., 3] > 128
+        hsv = cv2.cvtColor(mid_rgb, cv2.COLOR_RGB2HSV)
+        mh = hsv[..., 0].astype(np.float32) * 2.0
+        ms = hsv[..., 1].astype(np.float32) / 255.0
+        mv = hsv[..., 2].astype(np.float32) / 255.0
+        skin = ((mh < 38.0) | (mh > 335.0)) & (ms < 0.48) & (mv > 0.55)
+        sel = mid_a & (~skin) & (ms > 0.22) & (mv > 0.22)
+        if np.sum(sel) > 300:
+            rad = np.radians(mh[sel])
+            dom_hue = float(np.degrees(np.arctan2(np.median(np.sin(rad)), np.median(np.cos(rad)))) % 360.0)
+            dom_sat = float(np.clip(np.median(ms[sel]), 0.35, 0.72))
+        else:
+            dom_hue, dom_sat = 218.0, 0.58
+        aura = np.array(_hsv_to_rgb01(dom_hue, dom_sat, 0.85), dtype=np.float32)
+        accent = np.array(_hsv_to_rgb01(dom_hue + 38.0, float(np.clip(dom_sat * 0.68, 0.25, 0.65)), 0.96), dtype=np.float32)
+
+    yy, xx = np.mgrid[0:MASTER_H, 0:MASTER_W].astype(np.float32)
+    u = xx / float(MASTER_W)
+    v = yy / float(MASTER_H)
+
+    # Rich dark studio base + vertical depth gradient
+    deep_base = aura * 0.14 + np.array([0.025, 0.032, 0.055], dtype=np.float32)
+    top_tint = aura * 0.28 + np.array([0.03, 0.04, 0.07], dtype=np.float32)
+    bg = deep_base * (0.45 + 0.55 * v[..., None]) + top_tint * np.power(1.0 - v[..., None], 1.6)
+
+    # Upper-center celestial light portal (y ~ 0.29) + soft radial vignette
+    cx, cy = 0.50, 0.29
+    dx = (u - cx)
+    dy = (v - cy) * (MASTER_H / float(MASTER_W))
+    rad = np.hypot(dx, dy)
+    ang = np.arctan2(dy, dx)
+
+    portal = np.exp(-(rad ** 2) / (2.0 * 0.34 ** 2))
+    core_halo = np.exp(-(rad ** 2) / (2.0 * 0.14 ** 2))
+    rays = 0.5 + 0.5 * np.cos(ang * 12.0 + 0.4) * np.cos(ang * 5.0 - 0.7)
+    rays_env = np.exp(-rad * 2.1) * np.power(rays, 2.2)
+
+    bg += aura * (portal[..., None] * 0.42 + rays_env[..., None] * 0.16)
+    bg += accent * (core_halo[..., None] * 0.34 + rays_env[..., None] * 0.10)
+
+    # Soft atmospheric nebula ribbons
+    wave1 = np.sin(u * 5.2 + v * 3.1 + 0.6) * np.cos(v * 4.4 - u * 2.3)
+    wave2 = np.cos(u * 7.8 - v * 4.9 + 1.4) * np.sin(v * 6.2 + u * 2.7)
+    nebula = np.clip(0.5 + 0.5 * (0.6 * wave1 + 0.4 * wave2), 0.0, 1.0)
+    nebula = np.power(nebula, 2.6) * np.exp(-((v - 0.48) ** 2) / (2.0 * 0.36 ** 2))
+    bg += (0.65 * aura + 0.35 * accent) * nebula[..., None] * 0.20
+
+    # Deterministic fine bokeh & stardust specks
+    rng = np.random.default_rng(int(seed) + 771)
+    for _ in range(95):
+        sx = int(rng.uniform(0.06, 0.94) * MASTER_W)
+        sy = int(rng.uniform(0.05, 0.92) * MASTER_H)
+        sr = int(rng.uniform(2, 16))
+        br = float(rng.uniform(0.08, 0.32))
+        col = accent if rng.random() < 0.45 else aura
+        y0, y1 = max(0, sy - sr * 3), min(MASTER_H, sy + sr * 3 + 1)
+        x0, x1 = max(0, sx - sr * 3), min(MASTER_W, sx + sr * 3 + 1)
+        py, px = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        d2 = (px - sx) ** 2 + (py - sy) ** 2
+        spot = np.exp(-d2 / (2.0 * max(sr * 0.65, 1.2) ** 2))
+        bg[y0:y1, x0:x1] += spot[..., None] * (col * 0.75 + 0.25) * br
+
+    # Gentle outer vignette so subject & frame pop
+    edge_r = np.hypot((u - 0.5) * 1.15, (v - 0.48) * 1.08)
+    vig = 1.0 - 0.46 * np.clip((edge_r - 0.38) / 0.52, 0.0, 1.0) ** 1.6
+    bg = np.clip(bg * vig[..., None], 0.0, 1.0)
+    return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+
+def _load_cjk_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Locate a crisp CJK + Latin bold font across Windows, macOS, and Linux."""
+    candidates = [
+        # Windows
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        # macOS
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+        # Linux
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            try:
+                return ImageFont.truetype(path, size=size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def bake_on_card_nameplate(fg_pil: Image.Image, title: str, badge: str, palette: dict) -> Image.Image:
+    """Composite a sleek metallic bottom collector nameplate onto master_fg when label_mode == 'on_card'."""
+    out = fg_pil.convert("RGBA").copy()
+    layer = Image.new("RGBA", (MASTER_W, MASTER_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+
+    edge_spec = [int(np.clip(c * 255, 0, 255)) for c in palette.get("edge_spec", [0.98, 0.90, 0.70])]
+    edge_base = [int(np.clip(c * 255, 0, 255)) for c in palette.get("edge_base", [0.55, 0.45, 0.30])]
+    metal_hi = tuple(edge_spec) + (245,)
+    metal_lo = tuple(edge_base) + (235,)
+    plate_fill = (12, 16, 28, 224)
+
+    title_str = (title or "").strip()
+    badge_str = (badge or "").strip()
+    if not title_str and not badge_str:
+        return out
+
+    font_title = _load_cjk_font(34)
+    font_badge = _load_cjk_font(22)
+
+    # Measure layout dynamically to fit nicely inside the lower frame margin
+    t_bbox = draw.textbbox((0, 0), title_str, font=font_title) if title_str else (0, 0, 0, 0)
+    b_bbox = draw.textbbox((0, 0), badge_str, font=font_badge) if badge_str else (0, 0, 0, 0)
+    t_w, t_h = t_bbox[2] - t_bbox[0], t_bbox[3] - t_bbox[1]
+    b_w, b_h = b_bbox[2] - b_bbox[0], b_bbox[3] - b_bbox[1]
+
+    chip_pad_x = 18
+    chip_w = (b_w + chip_pad_x * 2) if badge_str else 0
+    gap = 20 if (badge_str and title_str) else 0
+    content_w = chip_w + gap + t_w
+    plate_w = int(np.clip(content_w + 88, 360, MASTER_W - 220))
+    plate_h = 78
+    x0 = (MASTER_W - plate_w) // 2
+    y0 = int(MASTER_H * 0.872)
+    x1, y1 = x0 + plate_w, y0 + plate_h
+
+    # Chamfered octagonal collector nameplate
+    ch = 16
+    poly = [
+        (x0 + ch, y0), (x1 - ch, y0),
+        (x1, y0 + ch), (x1, y1 - ch),
+        (x1 - ch, y1), (x0 + ch, y1),
+        (x0, y1 - ch), (x0, y0 + ch),
+    ]
+    draw.polygon(poly, fill=plate_fill)
+    draw.line(poly + [poly[0]], fill=metal_lo, width=5)
+    inner = [
+        (x0 + ch + 3, y0 + 3), (x1 - ch - 3, y0 + 3),
+        (x1 - 3, y0 + ch + 3), (x1 - 3, y1 - ch - 3),
+        (x1 - ch - 3, y1 - 3), (x0 + ch + 3, y1 - 3),
+        (x0 + 3, y1 - ch - 3), (x0 + 3, y0 + ch + 3),
+    ]
+    draw.line(inner + [inner[0]], fill=metal_hi, width=2)
+
+    cx = x0 + (plate_w - content_w) // 2
+    cy = (y0 + y1) // 2
+    if badge_str:
+        chip_h = 38
+        cy0 = cy - chip_h // 2
+        draw.rounded_rectangle(
+            [cx, cy0, cx + chip_w, cy0 + chip_h],
+            radius=10,
+            fill=tuple(edge_base) + (210,),
+            outline=metal_hi,
+            width=2,
+        )
+        bx = cx + chip_pad_x - b_bbox[0]
+        by = cy - b_h // 2 - b_bbox[1]
+        draw.text((bx, by), badge_str, font=font_badge, fill=(255, 250, 236, 255))
+        cx += chip_w + gap
+
+    if title_str:
+        tx = cx - t_bbox[0]
+        ty = cy - t_h // 2 - t_bbox[1]
+        draw.text((tx + 2, ty + 2), title_str, font=font_title, fill=(0, 0, 0, 170))
+        draw.text((tx, ty), title_str, font=font_title, fill=tuple(edge_spec) + (255,))
+
+    return Image.alpha_composite(out, layer)
+
+
+def run_asset_lint(
+    mid_rgba: np.ndarray,
+    fg_rgba: np.ndarray,
+    orig_mid_size: tuple[int, int],
+    mid_fit_applied: str,
+    matte_meta: dict,
+    bg_source: str,
+) -> dict:
+    """Objective pre-render asset diagnostics (edge clipping, coverage, fringe spill, frame window)."""
+    alpha = mid_rgba[..., 3].astype(np.float32) / 255.0
+    rgb = mid_rgba[..., :3].astype(np.float32) / 255.0
+    opaque = alpha > 0.50
+
+    coverage_pct = round(float(np.mean(opaque)) * 100.0, 2)
+    strip = 3
+    border_touch = {
+        "top_pct": round(float(np.mean(opaque[:strip, :])) * 100.0, 2),
+        "left_pct": round(float(np.mean(opaque[:, :strip])) * 100.0, 2),
+        "right_pct": round(float(np.mean(opaque[:, -strip:])) * 100.0, 2),
+        "bottom_pct": round(float(np.mean(opaque[-strip:, :])) * 100.0, 2),
+    }
+
+    # Check semi-transparent fringe for lingering neon green/magenta chroma spill
+    fringe = (alpha > 0.08) & (alpha < 0.72)
+    fringe_green = 0.0
+    fringe_magenta = 0.0
+    if int(np.sum(fringe)) > 40:
+        fr = rgb[fringe]
+        fringe_green = round(float(np.mean(np.maximum(fr[:, 1] - np.maximum(fr[:, 0], fr[:, 2]), 0.0))), 4)
+        fringe_magenta = round(float(np.mean(np.maximum(np.minimum(fr[:, 0], fr[:, 2]) - fr[:, 1], 0.0))), 4)
+
+    fg_open_pct = round(float(np.mean(fg_rgba[..., 3] < 40)) * 100.0, 2)
+    orig_w, orig_h = orig_mid_size
+    orig_ratio = round(orig_w / float(max(1, orig_h)), 4)
+
+    warnings: list[str] = []
+    mid_mode = matte_meta.get("mid_mode", "unknown")
+    if coverage_pct < 8.0:
+        warnings.append(f"LOW_SUBJECT_COVERAGE: mid opaque area is only {coverage_pct}% (cutout may have eroded subject).")
+    elif coverage_pct > 90.0 and mid_mode != "none":
+        warnings.append(f"HIGH_SUBJECT_COVERAGE: mid opaque area is {coverage_pct}% (background may not have been removed; inspect cutout_check.png).")
+
+    if border_touch["top_pct"] > 1.5:
+        warnings.append(
+            f"EDGE_CLIPPING_TOP: {border_touch['top_pct']}% of top border is opaque (head/ears/crown/weapon may be clipped; consider mid_fit='contain' or wider headroom)."
+        )
+    if border_touch["left_pct"] > 2.5 or border_touch["right_pct"] > 2.5:
+        warnings.append(
+            f"EDGE_CLIPPING_SIDE: opaque subject touches left={border_touch['left_pct']}%, right={border_touch['right_pct']}% (limbs/props may clip during ±24° tilt)."
+        )
+    if fringe_green > 0.14:
+        warnings.append(f"FRINGE_GREEN_SPILL: semi-transparent edge shows green excess={fringe_green} (check cutout_check.png).")
+    if fringe_magenta > 0.14:
+        warnings.append(f"FRINGE_MAGENTA_SPILL: semi-transparent edge shows magenta excess={fringe_magenta} (check cutout_check.png).")
+    if fg_open_pct < 62.0:
+        warnings.append(f"CROWDED_FRAME: fg frame interior window is only {fg_open_pct}% open (recommend >= 70%).")
+    if mid_mode == "grabcut":
+        warnings.append("GRABCUT_USED: local GrabCut was used on a non-uniform backdrop; visually verify hair/accessories in cutout_check.png before full render.")
+    if abs(orig_ratio - 0.75) > 0.15:
+        warnings.append(
+            f"ASPECT_RATIO_MISMATCH: raw mid is {orig_w}x{orig_h} (ratio {orig_ratio} vs target 0.75); applied mid_fit='{mid_fit_applied}'."
+        )
+
+    return {
+        "orig_mid_size": [orig_w, orig_h],
+        "orig_mid_ratio": orig_ratio,
+        "mid_fit_applied": mid_fit_applied,
+        "mid_matte_mode": mid_mode,
+        "bg_source": bg_source,
+        "subject_coverage_pct": coverage_pct,
+        "border_touch": border_touch,
+        "fringe_green_excess": fringe_green,
+        "fringe_magenta_excess": fringe_magenta,
+        "fg_open_window_pct": fg_open_pct,
+        "warnings": warnings,
+    }
 
 
 def bbox_initial_warp(alpha_bin: np.ndarray, depth_bin: np.ndarray) -> np.ndarray:
@@ -410,7 +728,11 @@ def build_masks_and_meta(bg_rgb: np.ndarray, mid_rgba: np.ndarray, fg_rgba: np.n
 
     fg_f = fg_rgba[..., :3].astype(np.float32) / 255.0
     fg_luma = (0.299 * fg_f[..., 0] + 0.587 * fg_f[..., 1] + 0.114 * fg_f[..., 2]) * fg_alpha
-    pick_peaks(fg_luma * (0.4 + 0.6 * a_emboss), 6, 110, (0.045, 0.072), "frame")
+    fg_peak_map = fg_luma * (0.4 + 0.6 * a_emboss)
+    if str(cfg.get("label_mode", "page_only")).lower().strip() == "on_card":
+        # Keep 4-point frame glints off the bottom nameplate text so title & badge stay crisp
+        fg_peak_map[int(0.845 * MASTER_H) : int(0.955 * MASTER_H), int(0.12 * MASTER_W) : int(0.88 * MASTER_W)] = 0.0
+    pick_peaks(fg_peak_map, 6, 110, (0.045, 0.072), "frame")
     pick_peaks(g_metal * mid_luma, 5, 110, (0.036, 0.062), "subject_metal")
     pick_peaks(bg_luma * (1.0 - mid_alpha) * (1.0 - fg_alpha), 4, 140, (0.030, 0.050), "bg_star")
 
@@ -452,10 +774,15 @@ def build_masks_and_meta(bg_rgb: np.ndarray, mid_rgba: np.ndarray, fg_rgba: np.n
         "color2": motif_col2,
     }
 
+    label_mode = str(cfg.get("label_mode", "page_only")).lower().strip()
+    if label_mode not in ("page_only", "on_card", "hidden"):
+        label_mode = "page_only"
+
     meta = {
         "title": str(cfg.get("title", "3D 全息流麻收藏卡")),
         "badge": str(cfg.get("badge", "SAR / UR")),
         "subtitle": str(cfg.get("subtitle", "3D 交互全息流麻卡（悬停/拖拽/陀螺仪倾摆）")),
+        "label_mode": label_mode,
         "studio_bg_label": str(cfg.get("studio_bg_label", "主题棚拍")),
         "holo_pattern": str(cfg.get("holo_pattern", "starburst")),
         "seed": int(cfg.get("seed", 20261121)),
@@ -489,9 +816,13 @@ def main():
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     palettes_db = json.loads(PALETTES_PATH.read_text(encoding="utf-8"))
 
-    bg_path = find_layer(raw_dir, ["bg", "bg_2k", "background"])
-    if bg_path is None:
-        raise FileNotFoundError(f"Could not find background layer in {raw_dir} (expected bg.png/.jpg/.webp)")
+    matte_meta = {}
+    matte_meta_path = mat_dir / "matte_meta.json"
+    if matte_meta_path.exists():
+        try:
+            matte_meta = json.loads(matte_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            matte_meta = {}
 
     mid_path = (mat_dir / "mid_rgba.png") if (mat_dir / "mid_rgba.png").exists() else find_layer(raw_dir, ["mid", "mid_2k", "subject", "character"])
     if mid_path is None:
@@ -502,17 +833,45 @@ def main():
         fg_path = resolve_fallback_frame(cfg.get("fallback_frame"))
         print(f"Using built-in fallback frame: {fg_path.name}")
 
-    depth_path = None if args.auto_depth else find_layer(raw_dir, ["mid_depth", "mid_depth_2k", "depth"])
-
-    bg_pil = resize_exact_3_4(Image.open(bg_path).convert("RGB"), "cover")
-    mid_pil = resize_exact_3_4(Image.open(mid_path).convert("RGBA"), "cover")
+    with Image.open(mid_path) as raw_mid_im:
+        orig_mid_size = raw_mid_im.size
+        mid_pil, mid_fit_applied = resize_mid_smart(raw_mid_im, str(cfg.get("mid_fit", "auto")))
     fg_pil = resize_exact_3_4(Image.open(fg_path).convert("RGBA"), "cover")
 
-    bg_rgb = np.array(bg_pil)
     mid_rgba = np.array(mid_pil)
-    fg_rgba = np.array(fg_pil)
     alpha_f = mid_rgba[..., 3].astype(np.float32) / 255.0
 
+    bg_path = find_layer(raw_dir, ["bg", "bg_2k", "background"])
+    if bg_path is not None:
+        bg_pil = resize_exact_3_4(Image.open(bg_path).convert("RGB"), "cover")
+        bg_source = "user_supplied"
+    else:
+        print("No bg layer supplied in 01_raw_layers/; synthesizing procedural atmospheric backdrop (zero-image-gen route).")
+        bg_pil = synthesize_procedural_bg(
+            mid_rgba,
+            cfg.get("theme_palette", "auto"),
+            palettes_db,
+            seed=int(cfg.get("seed", 20261121)),
+        )
+        bg_source = "procedural_synthesized"
+
+    bg_rgb = np.array(bg_pil)
+
+    # Resolve palette early if baking an engraved on-card collector nameplate onto fg
+    label_mode = str(cfg.get("label_mode", "page_only")).lower().strip()
+    if label_mode == "on_card":
+        prelim_pal = resolve_palette(cfg.get("theme_palette", "auto"), bg_rgb, np.array(fg_pil), palettes_db)
+        fg_pil = bake_on_card_nameplate(
+            fg_pil,
+            str(cfg.get("title", "")),
+            str(cfg.get("badge", "")),
+            prelim_pal,
+        )
+        print(f"Baked on-card metallic nameplate onto master_fg (badge={cfg.get('badge', '')!r}, title={cfg.get('title', '')!r}).")
+
+    fg_rgba = np.array(fg_pil)
+
+    depth_path = None if args.auto_depth else find_layer(raw_dir, ["mid_depth", "mid_depth_2k", "depth"])
     if depth_path is not None:
         depth_pil = resize_exact_3_4(Image.open(depth_path).convert("L"), "cover")
         depth_gray = np.array(depth_pil)
@@ -534,10 +893,16 @@ def main():
     fg_pil.save(proc_dir / "master_fg.png")
 
     masks_rgba, meta = build_masks_and_meta(bg_rgb, mid_rgba, fg_rgba, cfg, palettes_db)
+    meta["bg_source"] = bg_source
     meta["depth_source"] = depth_source
     meta["ecc_iou_raw"] = round(iou_raw, 4)
     meta["ecc_iou_aligned"] = round(iou_aligned, 4)
     meta["warp_matrix"] = [[round(float(v), 6) for v in row] for row in warp_mat]
+
+    lint = run_asset_lint(mid_rgba, fg_rgba, orig_mid_size, mid_fit_applied, matte_meta, bg_source)
+    meta["asset_lint"] = lint
+    for w_msg in lint["warnings"]:
+        print(f"LINT WARNING: {w_msg}")
 
     Image.fromarray(masks_rgba, "RGBA").save(proc_dir / "masks_rgba.png")
     if meta["prop_fx"]["enabled"]:
@@ -571,7 +936,11 @@ def main():
         np.hstack([cv2.resize(contour_vis, (pw, ph)), cv2.resize(masks_vis, (pw, ph))]),
     ])
     Image.fromarray(grid, "RGB").save(proc_dir / "align_check.png")
-    print(f"Stage prepare complete: depth_source={depth_source}, ECC IoU {iou_raw:.4f} -> {iou_aligned:.4f}, glints={len(meta['glints'])}")
+    print(
+        f"Stage prepare complete: bg_source={bg_source}, depth_source={depth_source}, "
+        f"mid_fit={mid_fit_applied}, ECC IoU {iou_raw:.4f} -> {iou_aligned:.4f}, "
+        f"glints={len(meta['glints'])}, lint_warnings={len(lint['warnings'])}"
+    )
 
 
 if __name__ == "__main__":

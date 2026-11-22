@@ -1,119 +1,106 @@
 ---
 name: holo-card-3d
-description: Create 3D holographic and flowing-quicksand (流麻) collector cards from a reference image, producing a frozen 3-deliverable bundle (60fps offline WebGL2 HTML, 690x960 zero-ghosting transparent animated WebP, and 460x640 GIF). Use when the user asks to turn an image or character into a 3D holo card, SAR/UR collector card, or interactive quicksand card. Not for general 2D photo editing or video generation.
+description: >-
+  Create 3D holographic and flowing-quicksand (流麻) collector cards from a reference
+  image via zero-image-gen local matting or AI layer redraw, exporting a 3-deliverable
+  bundle (60fps offline WebGL2 HTML, ~16.7fps 690x960 zero-ghosting transparent WebP,
+  and ~16.7fps 460x640 GIF). Use when the user asks to turn an image or character into
+  a 3D holo card, SAR/UR collector card, or interactive quicksand card. Not for general
+  2D photo editing or video generation.
 metadata:
   short-description: Turn images into 3D holo quicksand HTML, WebP, and GIF cards
-  version: "2.1"
-  compatibility: Portable across Antigravity, Codex, and Claude Code (with or without built-in image generation); requires Python 3 with numpy, Pillow, and opencv-python.
+  version: "2.2"
+  compatibility: Portable across Antigravity, Codex, and Claude Code (zero-image-gen, hybrid, or AI-redraw routes); requires Python 3.10+ with numpy, Pillow, and opencv-python.
 ---
 
-# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.1)
+# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.2)
 
-Turn a user-provided image into a standardized 3-layer + relief-depth 3D SAR/UR collector card with holographic foil, flowing quicksand + 3D micro-sequins, embossed bevel metallic borders, optional **1 surgical prop light FX + 1 crisp SDF motion motif** (zero extra AI image gen), and the frozen 3-file deliverable bundle.
-
-This skill uses deterministic local scripts and omits external ChatGPT-web or Flow-2K manual multi-app steps.
+Turn a user-provided image into a standardized 3-layer + relief-depth 3D SAR/UR collector card with holographic foil, flowing quicksand + 3D micro-sequins, metallic bevel frames, optional **1 surgical prop light sweep + 1 analytical SDF motion motif**, and a 3-file deliverable bundle.
 
 ## Workflow
 
-### Phase 1: Inspect Input & Confirm Style + Art Method
+### Phase 0: Environment Preflight
 
-1. Inspect the user's reference image first.
-2. Confirm with the user (skip items already explicitly specified):
-   - **Theme & Aesthetic** (e.g., 深海星海圣女 / 巴洛克塔罗, 赛博霓虹机能, 樱花和风, 暗夜哥特, 水墨国风).
-   - **Art & Rendering Method** (e.g., 2.5D 日系厚涂, 赛璐璐平涂, 写实 3D 盲盒质感, 新中式金箔工笔).
-   - **Frame Choice & Title/Badge**: Custom AI-generated `fg` frame vs. one of the bundled instant frames in `assets/frames/` (`classic_sar_gold.png`, `minimal_platinum.png`, `cyber_hud_frame.png`), plus card title, rarity badge (`SAR / UR`), and theme palette (`auto` or a preset from `assets/palettes.json`).
-   - **v2.1 "1+1" Bespoke Polish** (zero extra image generation): Identify **1 hero prop** on the subject (weapon, staff, skateboard, spellbook, fan, lantern, instrument) for a pixel-exact single directional light sweep + hairline tip glint, and **1 matching SDF motion motif** (`feathers_bubbles`, `cyber_stars`, `petals`, `embers`, or `snowflakes`; or `none`).
-3. **Chroma Check**: If the subject relies heavily on bright green (`#00FF00`-adjacent foliage, slime, green hair/clothes) and native transparent PNG output is unavailable, plan `#FF00FF` magenta backdrop for `mid` instead of green screen.
+Before running pipeline scripts, verify a real Python 3.10+ interpreter (avoid Windows Store `WindowsApps` aliases) and dependencies (`numpy`, `Pillow` with `webp_anim`, `opencv-python`) using [scripts/check_env.py](./scripts/check_env.py):
 
-### Phase 2: Confirm Image-Gen Capability & Acquire Source Layers
+```bash
+python scripts/check_env.py --workdir <workdir>
+```
 
-Check whether the current harness has an image-generation tool/skill available (e.g., Antigravity `image-generator`, Codex `imagegen`, `openai-image`, or MCP image generation), or ask the user if unsure.
+If `status != "OK"`, follow the printed `recommended_commands` (`pip install -r requirements.txt` or isolated `.venv`) before continuing.
 
-Initialize the project folder first in either track:
-- `<workdir>/card_config.json` (copy/adapt from [assets/card_config.example.json](assets/card_config.example.json))
-- `<workdir>/01_raw_layers/`
+### Phase 1: Inspect Input & Propose Default Plan
 
-Read [references/prompt-templates.md](references/prompt-templates.md) before generating or handing off prompts.
+1. Inspect the user's reference image first (aspect ratio, backdrop type, whether the subject is already polished art, and whether a distinct hero prop exists).
+2. Classify the user's intent into one of **3 explicit routes** (never silently call AI image-gen to redraw a character when the user asked to keep the original artwork):
+   - **Route 1 — Keep Original Artwork (Zero Image Gen)**: Pixel-faithful local cutout via [scripts/matte_layers.py](./scripts/matte_layers.py) (`rgba` / `green` / `magenta` / `blue` / `solid` / `grabcut` / `none`) + procedural atmospheric backdrop (auto-synthesized if `01_raw_layers/bg.*` is omitted) + built-in frame (`assets/frames/*.png`) + `--auto-depth`. Works from **1 single image**.
+   - **Route 2 — Hybrid (Keep Original Subject + Custom BG/Frame, or vice versa)**: Local pixel cutout for kept layers; generate or accept user-supplied assets only for layers the user wants replaced.
+   - **Route 3 — Reference-Based AI Redraw**: Full style transfer, pose redesign, or TCG re-illustration via Track A (built-in imagegen) or Track B (copy-ready prompt pack).
+3. **Propose-Default-First (Low Friction)**: Do not interrogate the user with a long questionnaire. Infer a sensible default package from the image and present **one concise confirmation block** covering only impactful choices (skip confirmation if the user already specified preferences or asked you to decide):
+   - **Route**: Route 1 (keep original pixels), Route 2 (hybrid), or Route 3 (AI redraw + art style).
+   - **Theme, Palette & Frame**: `theme_palette` (`auto` or preset in `assets/palettes.json`) + bundled frame (`classic_sar_gold`, `minimal_platinum`, `cyber_hud_frame`) or custom `fg`.
+   - **Card Label Visibility (`label_mode`)**: `"page_only"` *(default: clean art-first card face; title/badge in HTML HUD)*, `"on_card"` *(engraved metallic bottom nameplate visible on HTML, WebP, and GIF)*, or `"hidden"`.
+   - **Optional Polish**: `motion_motif` (`feathers_bubbles`, `cyber_stars`, `petals`, `embers`, `snowflakes`, or `none`) and `prop_fx` (**optional** — propose ONLY when a clear hero prop such as a staff, sword, skateboard, lantern, or instrument exists).
 
-#### Track A: Harness Has Image Generation
+### Phase 2: Acquire Source Layers (`<workdir>/01_raw_layers/`)
 
-1. Generate `01_raw_layers/mid.png` (3:4 portrait, `>= 1024x1365`, native transparent RGBA PNG preferred; else solid `#00FF00` or `#FF00FF`). Inspect visually for intact pose/props with margin around limbs.
-2. Generate `01_raw_layers/bg.png` (3:4 full-bleed atmospheric backdrop, no character, no card border, bright center glow slightly above midpoint). Inspect visually.
-3. Unless using a bundled frame in `assets/frames/`, generate `01_raw_layers/fg.png` (3:4 perimeter-only collector frame covering outer 6%–14% rim with solid chroma/transparent inner window `>= 75%`).
-4. Optional 4th depth layer: run `--stage matte` to produce `02_matted/mid_on_black.png`, then generate `01_raw_layers/mid_depth.png` via img2img grayscale bas-relief prompt on `#000000`. If img2img is unavailable or skipped, omit `mid_depth` — `prepare_assets.py` automatically synthesizes smooth relief depth (`depth_source: auto_synthesized`).
+Initialize `<workdir>/card_config.json` (adapted from [assets/card_config.example.json](./assets/card_config.example.json)) and `<workdir>/01_raw_layers/`.
 
-#### Track B: No Image Generation (e.g., Claude Code / External Gen)
+- **Route 1 (Zero Image Gen)**: Copy the original image directly to `01_raw_layers/mid.<ext>`. Omit `bg`, `fg`, and `mid_depth` unless the user supplies them — `prepare_assets.py` auto-synthesizes the atmospheric backdrop and relief depth and applies `fallback_frame`.
+- **Route 2 / Route 3**: Read [references/prompt-templates.md](./references/prompt-templates.md) before generating or handing off prompts.
+  - **Track A (Built-in Image Gen)**: Generate requested layers (`3:4`, `>= 1024x1365`; native RGBA preferred, else `#00FF00` green or `#FF00FF` magenta when subject contains green). Remember: AI image-gen **redraws** pixels; use local `matte_layers.py` whenever pixel preservation is required.
+  - **Track B (No Image Gen)**: Deliver tailored copy-ready prompts (1-image zero-gen, 2-image fast, 3-image auto-depth, or 4-image full) with exact target path `<workdir>/01_raw_layers/`, then **stop and wait** for files.
 
-1. Write `<workdir>/card_config.json` and create `<workdir>/01_raw_layers/`.
-2. Deliver a tailored copy-ready English prompt pack + brief Chinese instructions from [references/prompt-templates.md](references/prompt-templates.md) supporting any of:
-   - **Full 4-image mode**: `mid` + `bg` + `fg` + `mid_depth`
-   - **3-image auto-depth mode**: `mid` + `bg` + `fg` (`mid_depth` auto-synthesized locally)
-   - **2-image fast mode**: `mid` + `bg` (uses selected `assets/frames/*.png` + `--auto-depth`)
-3. Tell the user the exact destination folder `<workdir>/01_raw_layers/` and **stop and wait** for them to supply the images.
+### Phase 3: Matte, Asset Lint & Fast Preview Gate (Before Slow Render)
 
-### Phase 2.5: Surgical `1 Light FX + 1 Motion Motif` (Zero Extra Image Gen)
+Run matting, asset preparation, and the **~3-second 2-angle composite preview** BEFORE running the multi-minute 84-frame WebP/GIF encode:
 
-Follow the strict **"1+1 Restraint Rule"** so upgrades enhance the prop and atmosphere without ever washing out the original `v1.0` dark contrast or lineart:
-- **DO NOT** add outer glowing card shells, background energy veins, UV wind distortion on character hair/clothes, circular gradient blobs, or multi-nova white flashbangs.
+```bash
+python scripts/run_pipeline.py --workdir <workdir> --stage matte
+python scripts/run_pipeline.py --workdir <workdir> --stage prepare
+python scripts/run_pipeline.py --workdir <workdir> --stage preview
+```
 
-Steps:
-1. Run matting first if not yet done (`--stage matte`), then export labeled `0.05` UV coordinate rulers on `mid`:
+Inspect all pre-render gates and address any `LINT WARNING` printed by `prepare_assets.py`:
+1. **`03_processed/cutout_check.png`**: Verify clean edges and zero green/magenta/white fringe. If `mid_mode == grabcut` on a busy photo shows artifacts, ask the user for a clean RGBA cutout or switch to Route 3 with consent.
+2. **`03_processed/align_check.png` & `asset_lint`**: Check for `EDGE_CLIPPING_TOP/SIDE` (clipped ears, head, or props — `mid_fit: "auto"` switches non-3:4 inputs to `contain_safe` automatically, or adjust source headroom), face-box placement, and relief depth contour.
+3. **`03_processed/preview_composite.png`**: Shows `0°` front + tilted holo + transparent checkerboard in ~3s. Confirm framing, palette, and `on_card` nameplate legibility (show preview to the user before full animation render when visual sign-off matters).
+
+### Phase 3.5: Optional Surgical `prop_fx` ("1+1 Restraint Rule")
+
+Only run when `prop_fx.enabled` is desired for a hero prop (never add outer card shells, background energy veins, hair UV wobble, or circular flashbangs):
+1. Export labeled `0.05` UV coordinate rulers (`--crop U0 V0 U1 V1` optional):
    ```bash
    python scripts/run_pipeline.py --workdir <workdir> --stage prop-grid
-   # Optional zoomed crop on the prop region:
-   python scripts/run_pipeline.py --workdir <workdir> --stage prop-grid --crop 0.56 0.04 0.98 0.86
    ```
-2. Visually inspect `03_processed/uv_grid_mid.png` (and `uv_grid_crop.png`) to record exact normalized `[u, v]` coordinates (`0.0..1.0`):
-   - `prop_fx.enabled: true`
-   - `prop_fx.mask_polygons`: tight polygon list outlining ONLY the hero prop (zero face/hair/clothing overlap).
-   - `prop_fx.exclude_polygons`: loose box(es) over gripping fingers/hands (`exclude_skin_in_exclude_zones: true` automatically strips skin pixels dilated by 2px so dark prop segments between splayed fingers still gleam cleanly).
-   - `prop_fx.start_uv` & `prop_fx.tip_uv`: `[u, v]` sweep origin -> tip emblem/crystal where a single hairline ring (`~1.3px`) + needle star fires once per 5s cycle.
-   - `prop_fx.tint` / `prop_fx.gain`: `"auto"` tint (follows palette `edge_spec`, or explicit `[r, g, b]`) and scalar gain (default `0.90`; dial down if the card base palette is very bright).
-3. Choose **1** analytical SDF motif in `motion_motif.kind` matching the card theme:
-   - `"feathers_bubbles"` (deep sea / celestial / angel)
-   - `"cyber_stars"` (neon / Y2K / mecha / sci-fi)
-   - `"petals"` (floral / Art Nouveau / spring / sakura)
-   - `"embers"` (fire / forge / crimson blade)
-   - `"snowflakes"` (winter / frost / crystal)
-   - `"none"` (disable SDF shapes; keep classic v1.0 particles)
-4. Verify mask accuracy before building final outputs:
+2. Record tight `mask_polygons`, finger `exclude_polygons`, `start_uv`, and `tip_uv` in `card_config.json`, then rebuild mask and inspect `03_processed/prop_mask_qa.png` until zero bleed touches skin/face/hair:
    ```bash
-   python scripts/run_pipeline.py --workdir <workdir> --stage prepare
+   python scripts/run_pipeline.py --workdir <workdir> --stage prop-mask
    ```
-   Visually inspect `03_processed/prop_mask_qa.png` (cyan fill, red contour, green start dot, gold tip marker) and refine `mask_polygons` / `exclude_polygons` with `--stage prop-mask` until zero bleed touches skin, face, or hair.
 
-### Phase 3: Build, Render & Visual QA
+### Phase 4: Full Build, Render & Separated Technical / Visual QA
 
-1. Verify Python dependencies (`cv2`, `numpy`, `PIL`) using the project's Python interpreter:
-   ```bash
-   python -c "import cv2, numpy, PIL"
-   ```
-2. Run remaining stages (`--stage prepare` -> `html` -> `render` -> `verify`, or `--stage all` after `card_config.json` is finalized):
-   ```bash
-   python scripts/run_pipeline.py --workdir <workdir> --stage html
-   python scripts/run_pipeline.py --workdir <workdir> --stage render
-   python scripts/run_pipeline.py --workdir <workdir> --stage verify
-   ```
-3. Visually inspect ALL QA gates:
-   - `03_processed/cutout_check.png`: clean edges, zero green/magenta fringe.
-   - `03_processed/align_check.png`: face exclusion box, focal crosshair, depth map, contour match.
-   - `03_processed/prop_mask_qa.png` (when `prop_fx.enabled`): tight prop silhouette, zero finger/face bleed.
-   - `03_processed/qa_keyframes.png`: `f0`, prop gleam frame, peak hairline tip flare + SDF motif frame, opposite tilt, loop end, and checkerboard transparent WebP panel with crisp dark contrast (zero wash-out). Confirm `verify_outputs.py` prints `"status": "PASS"` and exits `0`.
+```bash
+python scripts/run_pipeline.py --workdir <workdir> --stage html
+python scripts/run_pipeline.py --workdir <workdir> --stage render
+python scripts/run_pipeline.py --workdir <workdir> --stage verify
+```
 
-### Phase 4: Deliver Standard 3 Outputs
+Always separate **Technical Verification** from **Visual QA** in your delivery report:
+- **Technical Verification (`scripts/verify_outputs.py`)**: Confirm exit code `0` and `"technical_status": "PASS"` (validates HTML WebGL2 bundle, WebP `690x960` / `84f` / `60ms` / `dispose=1, no_blend=1` / transparent corners, GIF `460x640` / `84f` / `60ms`).
+- **Visual QA (Manual/Agent Inspection)**: Inspect `03_processed/qa_keyframes.png` (and `cutout_check.png` / `prop_mask_qa.png`) and explicitly report visual checks (`cutout edges`, `no ear/limb clipping`, `contrast/lighting`, `on_card text readability` if enabled) plus any `asset_lint_warnings` or items not visually checked.
 
-Deliver only verified facts and file paths under `<workdir>/output/`:
-1. `holographic_card.html` — offline single-file 60fps WebGL2 interactive 3D card (`5.2s` auto-orbit, `±30°/±19°` drag & gyro, `流畅`/`高清` toggle).
-2. `holographic_card.webp` — `690x960` transparent RGBA animated WebP (`84` frames, `60 ms/frame`, `5.04s`, zero-ghosting `dispose=1, no_blend=1`).
-3. `holographic_card.gif` — `460x640` themed studio-backdrop GIF (`84` frames, `60 ms/frame`, `5.04s`, 256-color Median Cut + Floyd–Steinberg).
+### Phase 5: Deliver 3-File Bundle (`<workdir>/output/`)
 
-## Bundled Files & Routing
+State accurate per-format frame rates explicitly on delivery:
+1. `holographic_card.html` — Offline single-file **`60 fps`** WebGL2 interactive 3D card (`5.2s` auto-orbit, `±30°/±19°` drag & gyro, `流畅`/`高清` toggle).
+2. `holographic_card.webp` — `690x960` transparent RGBA animated WebP (**`84` frames @ `60 ms/frame` ≈ `16.7 fps`, `5.04s`**, zero-ghosting `dispose=1, no_blend=1`).
+3. `holographic_card.gif` — `460x640` themed studio-backdrop GIF (**`84` frames @ `60 ms/frame` ≈ `16.7 fps`, `5.04s`**, 256-color Median Cut + Floyd–Steinberg).
 
-- **Executable scripts** (`scripts/`): `run_pipeline.py`, `matte_layers.py`, `build_prop_mask.py`, `prepare_assets.py`, `render_card.py`, `build_html_card.py`, `verify_outputs.py`. Execute without loading full source unless patching behavior.
-- **Bundled assets** (`assets/`):
-  - `assets/palettes.json`: 7 curated palettes (`celestial-gold`, `crimson-gold`, `sakura-rose`, `cyber-neon`, `silver-frost`, `emerald-jade`, `ink-gold`).
-  - `assets/card_config.example.json`: Config schema starter template including `prop_fx` and `motion_motif`.
-  - `assets/frames/*.png`: Ready-to-use `1200x1600` RGBA collector frames (`classic_sar_gold.png`, `minimal_platinum.png`, `cyber_hud_frame.png`).
-- **References** (`references/` — load on demand):
-  - Read [references/prompt-templates.md](references/prompt-templates.md) when crafting Track A or Track B generation prompts.
-  - Read [references/standard-spec.md](references/standard-spec.md) when verifying v2.1 optical/motion specs, prop-mask rules, anti-ghosting requirements, or `card_config.json` fields.
+## Bundled Files & References
+
+- **Scripts** (`scripts/`): `check_env.py`, `run_pipeline.py`, `matte_layers.py`, `build_prop_mask.py`, `prepare_assets.py`, `build_html_card.py`, `render_card.py`, `verify_outputs.py`.
+- **Assets** (`assets/`): `palettes.json`, `card_config.example.json`, `frames/{classic_sar_gold,minimal_platinum,cyber_hud_frame}.png`; pinned deps in [requirements.txt](./requirements.txt).
+- **References** (load on demand):
+  - [references/prompt-templates.md](./references/prompt-templates.md) — Route 2/3 prompt templates & cutout-vs-redraw rules.
+  - [references/standard-spec.md](./references/standard-spec.md) — Optical/motion specs, `card_config.json` schema, lint thresholds, and QA invariants.

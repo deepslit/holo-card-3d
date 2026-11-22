@@ -26,9 +26,13 @@ def main():
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["all", "matte", "prop-grid", "prop-mask", "prepare", "html", "render", "verify"],
+        choices=["all", "env", "matte", "prop-grid", "prop-mask", "prepare", "preview", "html", "render", "verify"],
     )
-    parser.add_argument("--key-color", default="auto", choices=["auto", "rgba", "green", "magenta", "blue"])
+    parser.add_argument(
+        "--key-color",
+        default="auto",
+        choices=["auto", "rgba", "green", "magenta", "blue", "solid", "grabcut", "none"],
+    )
     parser.add_argument("--auto-depth", action="store_true", help="Synthesize relief depth without mid_depth")
     parser.add_argument("--crop", nargs=4, type=float, metavar=("U0", "V0", "U1", "V1"), help="Optional UV crop for prop-grid")
     parser.add_argument("--frames", type=int, default=84)
@@ -39,10 +43,12 @@ def main():
 
     workdir = str(args.workdir.resolve())
     t_total = time.time()
-    stages = ["matte", "prepare", "html", "render", "verify"] if args.stage == "all" else [args.stage]
+    stages = ["matte", "prepare", "preview", "html", "render", "verify"] if args.stage == "all" else [args.stage]
 
     for st in stages:
-        if st == "matte":
+        if st == "env":
+            run_step("Preflight env", "check_env.py", ["--workdir", workdir])
+        elif st == "matte":
             run_step("Stage 1/5 matte", "matte_layers.py", ["--workdir", workdir, "--key-color", args.key_color])
         elif st == "prop-grid":
             grid_args = ["--workdir", workdir, "--grid"]
@@ -56,6 +62,12 @@ def main():
             if args.auto_depth:
                 prep_args.append("--auto-depth")
             run_step("Stage 2/5 prepare", "prepare_assets.py", prep_args)
+        elif st == "preview":
+            run_step(
+                "Stage preview",
+                "render_card.py",
+                ["--workdir", workdir, "--frames", str(args.frames), "--preview-only"],
+            )
         elif st == "html":
             run_step("Stage 3/5 html", "build_html_card.py", ["--workdir", workdir])
         elif st == "render":
