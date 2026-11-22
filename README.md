@@ -2,7 +2,7 @@
 
 Turn any character illustration or reference image into a **3D holographic flowing-quicksand (流麻) SAR/UR collector card** with 11+3 perspective relief mapping, metallic embossed bevels, optional pixel-exact prop light sweeps, and analytical SDF motion motifs — exported as an offline **`60 fps` WebGL2 HTML**, **`~16.7 fps` zero-ghosting transparent WebP**, and **`~16.7 fps` GIF** bundle.
 
-Portable cross-harness Agent Skill for **Antigravity**, **Codex**, and **Claude Code**.
+Universal **Agent Skill** (`SKILL.md` standard) & standalone CLI pipeline — compatible with **any agent harness or coding CLI** (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, Trae, etc.).
 
 <p align="center">
   <img src="docs/demo_saintess.gif" width="300" alt="Deep-Sea Saintess · Celestial Staff Gleam & Starlight Feathers" />
@@ -43,19 +43,22 @@ python scripts/check_env.py
 pip install -r requirements.txt
 ```
 
-### 2. Install as an Agent Skill
-Clone this repository into your agent's skills directory (or symlink/junction to one shared copy):
+### 2. Install as an Agent Skill (Any Harness)
+`holo-card-3d` follows the open [`SKILL.md`](SKILL.md) convention with zero harness-specific lock-in, so it works across **any AI coding agent or CLI harness** that supports `SKILL.md` or shell execution.
+
+Clone this repository into your harness's skills directory (or symlink/junction to one shared copy):
 
 ```bash
-# Codex
-git clone https://github.com/deepslit/holo-card-3d.git ~/.codex/skills/holo-card-3d
+# Universal cross-agent project skills directory (Antigravity, Codex, Gemini CLI, OpenCode, Copilot, etc.)
+git clone https://github.com/deepslit/holo-card-3d.git .agents/skills/holo-card-3d
 
-# Claude Code
-git clone https://github.com/deepslit/holo-card-3d.git ~/.claude/skills/holo-card-3d
-
-# Antigravity (project or global skills)
-git clone https://github.com/deepslit/holo-card-3d.git <workspace>/.agents/skills/holo-card-3d
+# Or global / tool-specific skills directories (examples):
+git clone https://github.com/deepslit/holo-card-3d.git ~/.claude/skills/holo-card-3d   # Claude Code
+git clone https://github.com/deepslit/holo-card-3d.git ~/.codex/skills/holo-card-3d    # Codex
+git clone https://github.com/deepslit/holo-card-3d.git ~/.cursor/skills/holo-card-3d   # Cursor
 ```
+
+> **China Mirror & Any-Agent Fallback**: A Gitee mirror auto-syncs at `https://gitee.com/deepslit/holo-card-3d`. Even if your agent does not auto-discover `SKILL.md` folders, clone the repo anywhere and tell the agent to read `SKILL.md` and run `scripts/run_pipeline.py`.
 
 ---
 
@@ -94,11 +97,11 @@ python scripts/run_pipeline.py --workdir ./my_card --stage all
 
 ```text
 holo-card-3d/
-├── SKILL.md                  # Cross-harness agent instructions (v2.2)
+├── SKILL.md                  # Universal cross-harness agent instructions (v2.2)
 ├── README.md                 # Project overview & gallery
 ├── requirements.txt          # Verified Python dependency ranges
 ├── LICENSE                   # MIT License
-├── agents/openai.yaml        # Codex UI metadata
+├── agents/openai.yaml        # Optional Codex UI metadata
 ├── assets/
 │   ├── card_config.example.json
 │   ├── palettes.json
