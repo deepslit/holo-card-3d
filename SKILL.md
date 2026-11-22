@@ -9,11 +9,11 @@ description: >-
   2D photo editing or video generation.
 metadata:
   short-description: Turn images into 3D holo quicksand HTML, WebP, and GIF cards
-  version: "2.2"
+  version: "2.3"
   compatibility: Portable across any SKILL.md-compatible agent harness (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, etc.) or standalone CLI; requires Python 3.10+ with numpy, Pillow, and opencv-python.
 ---
 
-# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.2)
+# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.3)
 
 Turn a user-provided image into a standardized 3-layer + relief-depth 3D SAR/UR collector card with holographic foil, flowing quicksand + 3D micro-sequins, metallic bevel frames, optional **1 surgical prop light sweep + 1 analytical SDF motion motif**, and a 3-file deliverable bundle.
 
@@ -33,12 +33,13 @@ If `status != "OK"`, follow the printed `recommended_commands` (`pip install -r 
 
 1. Inspect the user's reference image first (aspect ratio, backdrop type, whether the subject is already polished art, and whether a distinct hero prop exists).
 2. Classify the user's intent into one of **3 explicit routes** (never silently call AI image-gen to redraw a character when the user asked to keep the original artwork):
-   - **Route 1 — Keep Original Artwork (Zero Image Gen)**: Pixel-faithful local cutout via [scripts/matte_layers.py](./scripts/matte_layers.py) (`rgba` / `green` / `magenta` / `blue` / `solid` / `grabcut` / `none`) + procedural atmospheric backdrop (auto-synthesized if `01_raw_layers/bg.*` is omitted) + built-in frame (`assets/frames/*.png`) + `--auto-depth`. Works from **1 single image**.
+   - **Route 1 — Keep Original Artwork (Zero Image Gen)**: Pixel-faithful local matting via [scripts/matte_layers.py](./scripts/matte_layers.py) (`rgba` / `green` / `magenta` / `blue` / `solid` -> transparent cutout + procedural `bg_preset` backdrop; complex/non-uniform full illustrations or photos default to full-bleed opaque passthrough `none` — never auto-running OpenCV `grabcut` — preserving 100% original pixels with relief depth, built-in frame, and top-coat craft lamination) + `--auto-depth`. Works from **1 single image**.
    - **Route 2 — Hybrid (Keep Original Subject + Custom BG/Frame, or vice versa)**: Local pixel cutout for kept layers; generate or accept user-supplied assets only for layers the user wants replaced.
    - **Route 3 — Reference-Based AI Redraw**: Full style transfer, pose redesign, or TCG re-illustration via Track A (built-in imagegen) or Track B (copy-ready prompt pack).
 3. **Propose-Default-First (Low Friction)**: Do not interrogate the user with a long questionnaire. Infer a sensible default package from the image and present **one concise confirmation block** covering only impactful choices (skip confirmation if the user already specified preferences or asked you to decide):
    - **Route**: Route 1 (keep original pixels), Route 2 (hybrid), or Route 3 (AI redraw + art style).
-   - **Theme, Palette & Frame**: `theme_palette` (`auto` or preset in `assets/palettes.json`) + bundled frame (`classic_sar_gold`, `minimal_platinum`, `cyber_hud_frame`) or custom `fg`.
+   - **Theme, Palette, Backdrop & Frame**: `theme_palette` (`auto` or preset in `assets/palettes.json`) + `bg_preset` (`celestial_nebula`, `stained_glass`, `cyber_grid`, `ink_wash`, `pastel_bokeh`, `obsidian_velvet`) + bundled frame (`classic_sar_gold`, `minimal_platinum`, `cyber_hud_frame`, `full_art_glass`, `baroque_arch`, `eastern_ink`, `y2k_polaroid`, `gothic_spire` with `frame_tint: "auto"`) or custom `fg`.
+   - **Craft Material, Lighting & Holo**: `material_preset` (`sar_quicksand`, `acrylic_brick`, `cracked_ice`, `etched_foil`, `matte_velvet`, `clean_tcg`), `lighting_preset` (`gallery_neutral`, `dramatic_rim`, `golden_hour`, `moonlit_prism`, `soft_pastel`), and `holo_pattern` (`starburst`, `prism_grid`, `cosmos_waves`, `cracked_ice`, `diagonal_foil`, `diamond_lattice`) — all synced 1:1 across HTML/WebP/GIF and live-switchable in the HTML craft popover.
    - **Card Label Visibility (`label_mode`)**: `"page_only"` *(default: clean art-first card face; title/badge in HTML HUD)*, `"on_card"` *(engraved metallic bottom nameplate visible on HTML, WebP, and GIF)*, or `"hidden"`.
    - **Optional Polish**: `motion_motif` (`feathers_bubbles`, `cyber_stars`, `petals`, `embers`, `snowflakes`, or `none`) and `prop_fx` (**optional** — propose ONLY when a clear hero prop such as a staff, sword, skateboard, lantern, or instrument exists).
 
@@ -62,7 +63,7 @@ python scripts/run_pipeline.py --workdir <workdir> --stage preview
 ```
 
 Inspect all pre-render gates and address any `LINT WARNING` printed by `prepare_assets.py`:
-1. **`03_processed/cutout_check.png`**: Verify clean edges and zero green/magenta/white fringe. If `mid_mode == grabcut` on a busy photo shows artifacts, ask the user for a clean RGBA cutout or switch to Route 3 with consent.
+1. **`03_processed/cutout_check.png`**: For transparent/chroma/solid cutouts, verify clean edges and zero green/magenta/white fringe. For full-bleed complex-background inputs (`mid_mode == none`), confirm original artwork is preserved cleanly without unintended cropping.
 2. **`03_processed/align_check.png` & `asset_lint`**: Check for `EDGE_CLIPPING_TOP/SIDE` (clipped ears, head, or props — `mid_fit: "auto"` switches non-3:4 inputs to `contain_safe` automatically, or adjust source headroom), face-box placement, and relief depth contour.
 3. **`03_processed/preview_composite.png`**: Shows `0°` front + tilted holo + transparent checkerboard in ~3s. Confirm framing, palette, and `on_card` nameplate legibility (show preview to the user before full animation render when visual sign-off matters).
 
@@ -100,7 +101,7 @@ State accurate per-format frame rates explicitly on delivery:
 ## Bundled Files & References
 
 - **Scripts** (`scripts/`): `check_env.py`, `run_pipeline.py`, `matte_layers.py`, `build_prop_mask.py`, `prepare_assets.py`, `build_html_card.py`, `render_card.py`, `verify_outputs.py`.
-- **Assets** (`assets/`): `palettes.json`, `card_config.example.json`, `frames/{classic_sar_gold,minimal_platinum,cyber_hud_frame}.png`; pinned deps in [requirements.txt](./requirements.txt).
+- **Assets** (`assets/`): `palettes.json`, `card_config.example.json`, `frames/{classic_sar_gold,minimal_platinum,cyber_hud_frame,full_art_glass,baroque_arch,eastern_ink,y2k_polaroid,gothic_spire}.png`; pinned deps in [requirements.txt](./requirements.txt).
 - **References** (load on demand):
   - [references/prompt-templates.md](./references/prompt-templates.md) — Route 2/3 prompt templates & cutout-vs-redraw rules.
   - [references/standard-spec.md](./references/standard-spec.md) — Optical/motion specs, `card_config.json` schema, lint thresholds, and QA invariants.

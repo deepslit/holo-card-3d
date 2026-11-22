@@ -114,47 +114,335 @@ def resize_mid_smart(img: Image.Image, fit_mode: str = "auto") -> tuple[Image.Im
     return canvas, "contain_safe"
 
 
-def synthesize_procedural_bg(mid_rgba: np.ndarray, theme_palette, palettes_db: dict, seed: int = 20261121) -> Image.Image:
-    """Generate a deep atmospheric collector-card backdrop for zero-image-gen single-image workflows."""
-    # Pick harmonious primary aura & secondary highlight colors
+VALID_BG_PRESETS = (
+    "celestial_nebula",
+    "stained_glass",
+    "cyber_grid",
+    "ink_wash",
+    "pastel_bokeh",
+    "obsidian_velvet",
+)
+VALID_HOLO_PATTERNS = (
+    "starburst",
+    "prism_grid",
+    "cosmos_waves",
+    "cracked_ice",
+    "diagonal_foil",
+    "diamond_lattice",
+)
+VALID_MATERIAL_PRESETS = (
+    "sar_quicksand",
+    "acrylic_brick",
+    "cracked_ice",
+    "etched_foil",
+    "matte_velvet",
+    "clean_tcg",
+)
+VALID_LIGHTING_PRESETS = (
+    "gallery_neutral",
+    "dramatic_rim",
+    "golden_hour",
+    "moonlit_prism",
+    "soft_pastel",
+)
+
+
+def apply_frame_tint(
+    fg_pil: Image.Image,
+    is_builtin_frame: bool,
+    frame_stem: str,
+    frame_tint,
+    palette: dict,
+) -> Image.Image:
+    """Apply luminance-preserving metallic tint to built-in frames (or explicit user tint)."""
+    mode = "auto" if frame_tint is None else frame_tint
+    if isinstance(mode, str):
+        mode_s = mode.lower().strip()
+        if mode_s in ("original", "none", "off"):
+            return fg_pil
+        if mode_s == "auto" and not is_builtin_frame:
+            return fg_pil
+        # Preserve signature look of classic_sar_gold unless user asks for palette/custom tint
+        if mode_s == "auto" and frame_stem == "classic_sar_gold":
+            return fg_pil
+
+    arr = np.array(fg_pil.convert("RGBA"), dtype=np.float32) / 255.0
+    rgb = arr[..., :3]
+    alpha = arr[..., 3:4]
+
+    if isinstance(mode, (list, tuple)) and len(mode) == 3:
+        tint_col = np.clip(np.array([float(c) for c in mode], dtype=np.float32), 0.05, 1.0)
+        strength = 0.85
+    else:
+        metal = np.array(palette.get("metal_tint", [0.95, 0.88, 0.65]), dtype=np.float32)
+        spec = np.array(palette.get("edge_spec", [1.0, 0.94, 0.78]), dtype=np.float32)
+        aura = np.array(palette.get("aura", [0.35, 0.75, 0.98]), dtype=np.float32)
+        sand1 = np.array(palette.get("sand1", [0.95, 0.85, 0.55]), dtype=np.float32)
+
+        if frame_stem == "cyber_hud_frame":
+            # Keep dark forged armor intact; retint only the bright cyan neon strips/ticks
+            cyan_mask = np.clip((rgb[..., 2] - rgb[..., 0]) * 2.2, 0.0, 1.0)[..., None]
+            neon_target = np.clip(0.55 * sand1 + 0.45 * aura, 0.15, 1.0)
+            luma = (0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2])[..., None]
+            tinted_neon = np.clip(neon_target[None, None, :] * (0.55 + 0.75 * luma), 0.0, 1.0)
+            out_rgb = rgb * (1.0 - cyan_mask * 0.88) + tinted_neon * (cyan_mask * 0.88)
+            out = np.concatenate([np.clip(out_rgb, 0.0, 1.0), alpha], axis=-1)
+            return Image.fromarray((out * 255.0).astype(np.uint8), "RGBA")
+
+        if frame_stem == "full_art_glass":
+            tint_col = 0.35 * spec + 0.65 * np.array([0.92, 0.96, 1.0], dtype=np.float32)
+            strength = 0.42
+        elif frame_stem == "gothic_spire":
+            # Forged dark metal retains moody low-key sheen with subtle palette alloy tint
+            tint_col = np.clip(0.55 * metal + 0.45 * np.array([0.62, 0.65, 0.74], dtype=np.float32), 0.15, 1.0)
+            strength = 0.72
+        else:
+            tint_col = np.clip(0.72 * metal + 0.28 * spec, 0.15, 1.0)
+            strength = 0.82
+
+    luma = (0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2])[..., None]
+    # Preserve bright specular whites while rich midtones take the metallic alloy hue
+    spec_keep = np.clip((luma - 0.76) / 0.24, 0.0, 1.0) ** 1.4
+    alloy = np.clip(luma * (tint_col[None, None, :] / max(float(np.mean(tint_col)), 0.35)), 0.0, 1.0)
+    recolored = alloy * (1.0 - 0.65 * spec_keep) + np.clip(luma * (0.5 + 0.5 * tint_col[None, None, :]), 0.0, 1.0) * (0.65 * spec_keep)
+    out_rgb = rgb * (1.0 - strength) + recolored * strength
+    out = np.concatenate([np.clip(out_rgb, 0.0, 1.0), alpha], axis=-1)
+    return Image.fromarray((out * 255.0).astype(np.uint8), "RGBA")
+
+
+def _resolve_procedural_colors(mid_rgba: np.ndarray, theme_palette, palettes_db: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return harmonious (aura, accent, secondary) RGB float32 vectors in [0, 1]."""
     if isinstance(theme_palette, dict) and "aura" in theme_palette:
         aura = np.array(theme_palette["aura"], dtype=np.float32)
         accent = np.array(theme_palette.get("sand1", [0.95, 0.84, 0.55]), dtype=np.float32)
-    elif isinstance(theme_palette, str) and theme_palette in palettes_db:
+        sec = np.array(theme_palette.get("sand2", [0.58, 0.86, 1.00]), dtype=np.float32)
+        return aura, accent, sec
+    if isinstance(theme_palette, str) and theme_palette in palettes_db:
         pal = palettes_db[theme_palette]
-        aura = np.array(pal["aura"], dtype=np.float32)
-        accent = np.array(pal["sand1"], dtype=np.float32)
+        return (
+            np.array(pal["aura"], dtype=np.float32),
+            np.array(pal["sand1"], dtype=np.float32),
+            np.array(pal["sand2"], dtype=np.float32),
+        )
+    mid_rgb = mid_rgba[..., :3]
+    mid_a = mid_rgba[..., 3] > 128
+    hsv = cv2.cvtColor(mid_rgb, cv2.COLOR_RGB2HSV)
+    mh = hsv[..., 0].astype(np.float32) * 2.0
+    ms = hsv[..., 1].astype(np.float32) / 255.0
+    mv = hsv[..., 2].astype(np.float32) / 255.0
+    skin = ((mh < 38.0) | (mh > 335.0)) & (ms < 0.48) & (mv > 0.55)
+    sel = mid_a & (~skin) & (ms > 0.22) & (mv > 0.22)
+    if np.sum(sel) > 300:
+        rad = np.radians(mh[sel])
+        dom_hue = float(np.degrees(np.arctan2(np.median(np.sin(rad)), np.median(np.cos(rad)))) % 360.0)
+        dom_sat = float(np.clip(np.median(ms[sel]), 0.35, 0.72))
     else:
-        # Derive harmonious deep atmospheric hue from subject's non-skin chromatic pixels
-        mid_rgb = mid_rgba[..., :3]
-        mid_a = mid_rgba[..., 3] > 128
-        hsv = cv2.cvtColor(mid_rgb, cv2.COLOR_RGB2HSV)
-        mh = hsv[..., 0].astype(np.float32) * 2.0
-        ms = hsv[..., 1].astype(np.float32) / 255.0
-        mv = hsv[..., 2].astype(np.float32) / 255.0
-        skin = ((mh < 38.0) | (mh > 335.0)) & (ms < 0.48) & (mv > 0.55)
-        sel = mid_a & (~skin) & (ms > 0.22) & (mv > 0.22)
-        if np.sum(sel) > 300:
-            rad = np.radians(mh[sel])
-            dom_hue = float(np.degrees(np.arctan2(np.median(np.sin(rad)), np.median(np.cos(rad)))) % 360.0)
-            dom_sat = float(np.clip(np.median(ms[sel]), 0.35, 0.72))
-        else:
-            dom_hue, dom_sat = 218.0, 0.58
-        aura = np.array(_hsv_to_rgb01(dom_hue, dom_sat, 0.85), dtype=np.float32)
-        accent = np.array(_hsv_to_rgb01(dom_hue + 38.0, float(np.clip(dom_sat * 0.68, 0.25, 0.65)), 0.96), dtype=np.float32)
+        dom_hue, dom_sat = 218.0, 0.58
+    aura = np.array(_hsv_to_rgb01(dom_hue, dom_sat, 0.85), dtype=np.float32)
+    accent = np.array(_hsv_to_rgb01(dom_hue + 38.0, float(np.clip(dom_sat * 0.68, 0.25, 0.65)), 0.96), dtype=np.float32)
+    sec = np.array(_hsv_to_rgb01(dom_hue - 42.0, float(np.clip(dom_sat * 0.72, 0.25, 0.70)), 0.92), dtype=np.float32)
+    return aura, accent, sec
 
+
+def synthesize_procedural_bg(
+    mid_rgba: np.ndarray,
+    theme_palette,
+    palettes_db: dict,
+    seed: int = 20261121,
+    bg_preset: str = "celestial_nebula",
+) -> Image.Image:
+    """Generate a high-craft procedural 1200x1600 collector-card backdrop for zero-image-gen workflows."""
+    preset = str(bg_preset or "celestial_nebula").lower().strip()
+    if preset not in VALID_BG_PRESETS:
+        preset = "celestial_nebula"
+
+    aura, accent, sec = _resolve_procedural_colors(mid_rgba, theme_palette, palettes_db)
     yy, xx = np.mgrid[0:MASTER_H, 0:MASTER_W].astype(np.float32)
     u = xx / float(MASTER_W)
     v = yy / float(MASTER_H)
+    rng = np.random.default_rng(int(seed) + 771)
 
-    # Rich dark studio base + vertical depth gradient
+    if preset == "stained_glass":
+        # Cathedral stained-glass Voronoi facets + radiant rose apex + god-ray light shafts
+        gw, gh = 300, 400
+        gy, gx = np.mgrid[0:gh, 0:gw].astype(np.float32)
+        gu = gx / float(gw)
+        gv = gy / float(gh)
+        n_cells = 46
+        pts_u = rng.uniform(0.02, 0.98, n_cells).astype(np.float32)
+        pts_v = rng.uniform(0.02, 0.98, n_cells).astype(np.float32)
+        # Anchor symmetrical cathedral crown points near upper portal
+        for k in range(8):
+            a = k * math.pi / 4.0
+            pts_u[k] = 0.50 + 0.22 * math.cos(a)
+            pts_v[k] = 0.28 + 0.16 * math.sin(a)
+        d1 = np.full((gh, gw), 1e9, dtype=np.float32)
+        d2 = np.full((gh, gw), 1e9, dtype=np.float32)
+        cid = np.zeros((gh, gw), dtype=np.int32)
+        for idx in range(n_cells):
+            dist = np.hypot((gu - pts_u[idx]) * 0.75, gv - pts_v[idx])
+            m1 = dist < d1
+            d2 = np.where(m1, d1, np.minimum(d2, dist))
+            d1 = np.where(m1, dist, d1)
+            cid = np.where(m1, idx, cid)
+        lead_edge = 1.0 - np.clip((d2 - d1) / 0.0085, 0.0, 1.0)
+        pal_cells = np.zeros((n_cells, 3), dtype=np.float32)
+        for idx in range(n_cells):
+            t_m = float(rng.uniform(0.0, 1.0))
+            base_c = aura * (1.0 - t_m) + (accent if idx % 3 == 0 else sec) * t_m
+            bright = float(rng.uniform(0.24, 0.62))
+            pal_cells[idx] = base_c * bright + np.array([0.04, 0.05, 0.08], dtype=np.float32)
+        glass_lo = pal_cells[cid] * (1.0 - 0.78 * lead_edge[..., None])
+        glass = cv2.resize(glass_lo, (MASTER_W, MASTER_H), interpolation=cv2.INTER_LINEAR)
+
+        dx, dy = u - 0.50, (v - 0.26) * (MASTER_H / float(MASTER_W))
+        rad = np.hypot(dx, dy)
+        ang = np.arctan2(dy, dx)
+        rose_glow = np.exp(-(rad ** 2) / (2.0 * 0.32 ** 2))
+        rays = np.power(0.5 + 0.5 * np.cos(ang * 16.0), 3.0) * np.exp(-rad * 1.65)
+        bg = glass * (0.72 + 0.72 * rose_glow[..., None]) + accent * (rays[..., None] * 0.24 + rose_glow[..., None] * 0.16)
+        edge_r = np.hypot((u - 0.5) * 1.12, (v - 0.48) * 1.08)
+        vig = 1.0 - 0.52 * np.clip((edge_r - 0.36) / 0.54, 0.0, 1.0) ** 1.6
+        bg = np.clip(bg * vig[..., None], 0.0, 1.0)
+        return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+    if preset == "cyber_grid":
+        # Retro-futuristic cyber perspective grid + neon horizon glow + clean scanlines
+        hor_y = 0.58
+        sky_t = np.clip(v / hor_y, 0.0, 1.0)
+        sky_top = np.array([0.025, 0.028, 0.062], dtype=np.float32) + aura * 0.08
+        sky_hor = np.array([0.05, 0.04, 0.10], dtype=np.float32) + aura * 0.34 + sec * 0.18
+        bg = sky_top * (1.0 - sky_t[..., None]) + sky_hor * (sky_t[..., None] ** 1.8)
+
+        # Cyber sun / digital portal ring above horizon
+        dx_s, dy_s = u - 0.50, (v - 0.34) * (MASTER_H / float(MASTER_W))
+        r_s = np.hypot(dx_s, dy_s)
+        sun_disc = (1.0 - np.clip((r_s - 0.22) / 0.008, 0.0, 1.0)) * np.where(v > 0.30, (np.sin(v * 210.0) > -0.35).astype(np.float32), 1.0)
+        sun_col = accent * (1.0 - np.clip(v * 1.4, 0.0, 1.0))[..., None] + sec * np.clip(v * 1.4, 0.0, 1.0)[..., None]
+        bg += sun_col * (sun_disc[..., None] * 0.46 + np.exp(-(r_s ** 2) / (2.0 * 0.26 ** 2))[..., None] * 0.24)
+
+        # Perspective floor below horizon
+        floor_mask = v > hor_y
+        dv = np.maximum(v - hor_y, 0.004)
+        z_persp = 0.24 / dv
+        x_persp = (u - 0.50) * z_persp * 2.6
+        gx_line = np.exp(-((np.abs(np.mod(x_persp + 0.5, 1.0) - 0.5)) / 0.032) ** 2)
+        gz_line = np.exp(-((np.abs(np.mod(z_persp * 1.6 + 0.5, 1.0) - 0.5)) / 0.042) ** 2)
+        grid_str = np.maximum(gx_line, gz_line) * np.clip((v - hor_y) / 0.06, 0.0, 1.0) * np.exp(-dv * 1.2)
+        floor_base = np.array([0.02, 0.024, 0.052], dtype=np.float32) + aura * (0.12 * np.exp(-dv * 4.0))[..., None]
+        floor_col = floor_base + (0.65 * aura + 0.35 * accent) * grid_str[..., None] * 0.58
+        bg = np.where(floor_mask[..., None], floor_col, bg)
+
+        # Crisp neon horizon laser line + subtle CRT scanlines
+        hor_glow = np.exp(-((v - hor_y) / 0.016) ** 2)
+        bg += (0.55 * accent + 0.45 * aura) * hor_glow[..., None] * 0.55
+        scan = 0.94 + 0.06 * np.sin(yy * 1.5708)
+        edge_r = np.hypot((u - 0.5) * 1.15, (v - 0.48) * 1.08)
+        vig = 1.0 - 0.44 * np.clip((edge_r - 0.38) / 0.54, 0.0, 1.0) ** 1.6
+        bg = np.clip(bg * scan[..., None] * vig[..., None], 0.0, 1.0)
+        return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+    if preset == "ink_wash":
+        # Eastern rice-paper wash + misty layered mountains + fine scattered gold leaf flecks
+        paper_n = cv2.resize(rng.normal(0.0, 1.0, (MASTER_H // 4, MASTER_W // 4)).astype(np.float32), (MASTER_W, MASTER_H))
+        paper_grain = 0.97 + 0.03 * np.clip(paper_n, -1.5, 1.5)
+        warm_paper = np.array([0.92, 0.90, 0.85], dtype=np.float32) * 0.86 + aura * 0.10
+        sky_fade = np.array([0.82, 0.84, 0.84], dtype=np.float32) * 0.84 + sec * 0.12
+        bg = (sky_fade * (1.0 - v[..., None]) + warm_paper * v[..., None]) * paper_grain[..., None]
+
+        # Subtle glowing moon/sun seal in upper third
+        r_moon = np.hypot((u - 0.52), (v - 0.25) * (MASTER_H / float(MASTER_W)))
+        moon = np.exp(-(r_moon ** 2) / (2.0 * 0.16 ** 2))
+        bg = np.clip(bg + accent * moon[..., None] * 0.16, 0.0, 1.0)
+
+        # Three atmospheric misty sumi-ink mountain ridges
+        ink_col = np.array([0.11, 0.14, 0.18], dtype=np.float32) * 0.78 + aura * 0.16
+        layers = [
+            (0.56, 0.075, 4.2, 0.6, 0.24, 0.12),
+            (0.68, 0.085, 5.8, 2.1, 0.42, 0.10),
+            (0.80, 0.070, 7.1, 4.0, 0.64, 0.08),
+        ]
+        for base_y, amp, freq, ph, alpha_m, mist in layers:
+            ridge = base_y + amp * np.sin(u * freq + ph) + amp * 0.45 * np.cos(u * freq * 2.1 - ph * 0.7)
+            m_mask = np.clip((v - ridge) / 0.014, 0.0, 1.0)
+            mist_fade = np.exp(-np.maximum(v - ridge, 0.0) / max(mist, 0.02))
+            eff = m_mask * alpha_m * (0.35 + 0.65 * mist_fade)
+            bg = bg * (1.0 - eff[..., None]) + ink_col[None, None, :] * eff[..., None]
+
+        # Delicate scattered gold-leaf flecks (洒金宣纸)
+        gold_c = np.clip(accent * 0.75 + np.array([0.96, 0.82, 0.42], dtype=np.float32) * 0.25, 0.0, 1.0)
+        for _ in range(75):
+            fx = int(rng.uniform(0.05, 0.95) * MASTER_W)
+            fy = int(rng.uniform(0.05, 0.93) * MASTER_H)
+            fw = int(rng.uniform(2, 8))
+            fh = int(rng.uniform(2, 7))
+            y0, y1 = max(0, fy - fh), min(MASTER_H, fy + fh)
+            x0, x1 = max(0, fx - fw), min(MASTER_W, fx + fw)
+            br = float(rng.uniform(0.18, 0.46))
+            bg[y0:y1, x0:x1] = bg[y0:y1, x0:x1] * (1.0 - br) + gold_c * br
+
+        edge_r = np.hypot((u - 0.5) * 1.12, (v - 0.50) * 1.08)
+        vig = 1.0 - 0.16 * np.clip((edge_r - 0.42) / 0.50, 0.0, 1.0) ** 1.6
+        bg = np.clip(bg * vig[..., None], 0.0, 1.0)
+        return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+    if preset == "pastel_bokeh":
+        # Airy light pastel gradient + silky dreamy bokeh orbs (ideal for kawaii / sakura / bright art)
+        p_top = np.clip(0.68 + 0.28 * aura, 0.0, 1.0)
+        p_mid = np.clip(0.76 + 0.22 * accent, 0.0, 1.0)
+        p_bot = np.clip(0.72 + 0.26 * sec, 0.0, 1.0)
+        t1 = np.clip(v * 1.6, 0.0, 1.0)[..., None]
+        t2 = np.clip((v - 0.45) * 1.8, 0.0, 1.0)[..., None]
+        bg = (p_top * (1.0 - t1) + p_mid * t1) * (1.0 - t2) + p_bot * t2
+
+        # Soft pearlescent light ribbons
+        rib = 0.5 + 0.5 * np.sin(u * 4.8 + v * 3.6 + 0.5) * np.cos(v * 5.2 - u * 2.1)
+        bg = np.clip(bg + np.array([1.0, 0.99, 1.0], dtype=np.float32) * (np.power(rib, 2.8)[..., None] * 0.12), 0.0, 1.0)
+
+        # Large dreamy translucent bokeh discs
+        for _ in range(42):
+            bx = int(rng.uniform(0.04, 0.96) * MASTER_W)
+            by = int(rng.uniform(0.04, 0.96) * MASTER_H)
+            br_r = int(rng.uniform(22, 82))
+            alpha_b = float(rng.uniform(0.08, 0.22))
+            col_b = np.array([1.0, 1.0, 1.0], dtype=np.float32) if rng.random() < 0.6 else np.clip(0.65 + 0.35 * accent, 0.0, 1.0)
+            y0, y1 = max(0, by - br_r - 6), min(MASTER_H, by + br_r + 7)
+            x0, x1 = max(0, bx - br_r - 6), min(MASTER_W, bx + br_r + 7)
+            py_b, px_b = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+            dist = np.hypot(px_b - bx, py_b - by)
+            disc = 1.0 - np.clip((dist - br_r * 0.86) / (br_r * 0.22), 0.0, 1.0)
+            ring = np.exp(-((dist - br_r * 0.84) / max(br_r * 0.09, 2.0)) ** 2) * 0.45
+            w_b = np.clip(disc * 0.68 + ring, 0.0, 1.0)[..., None] * alpha_b
+            bg[y0:y1, x0:x1] = bg[y0:y1, x0:x1] * (1.0 - w_b) + col_b * w_b
+
+        edge_r = np.hypot((u - 0.5) * 1.10, (v - 0.48) * 1.06)
+        vig = 1.0 - 0.12 * np.clip((edge_r - 0.44) / 0.50, 0.0, 1.0) ** 1.5
+        bg = np.clip(bg * vig[..., None], 0.0, 1.0)
+        return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+    if preset == "obsidian_velvet":
+        # Ultra-clean luxury dark charcoal studio backdrop + subtle overhead cone + fine film grain
+        dx_c, dy_c = (u - 0.50) * 1.12, (v - 0.32) * 1.15
+        cone = np.exp(-(dx_c ** 2 + dy_c ** 2) / (2.0 * 0.36 ** 2))
+        deep_ch = np.array([0.042, 0.045, 0.056], dtype=np.float32) + aura * 0.035
+        hi_ch = np.array([0.135, 0.142, 0.168], dtype=np.float32) + aura * 0.095 + accent * 0.035
+        bg = deep_ch * (1.0 - cone[..., None]) + hi_ch * cone[..., None]
+
+        # Subtle studio velvet micro-grain
+        grain = cv2.resize(rng.normal(0.0, 1.0, (MASTER_H // 2, MASTER_W // 2)).astype(np.float32), (MASTER_W, MASTER_H))
+        bg += np.clip(grain, -1.5, 1.5)[..., None] * 0.008
+        edge_r = np.hypot((u - 0.5) * 1.16, (v - 0.48) * 1.08)
+        vig = 1.0 - 0.56 * np.clip((edge_r - 0.32) / 0.56, 0.0, 1.0) ** 1.65
+        bg = np.clip(bg * vig[..., None], 0.0, 1.0)
+        return Image.fromarray((bg * 255.0).astype(np.uint8), "RGB")
+
+    # Default: celestial_nebula (deep studio + celestial light portal + nebula ribbons + stardust)
     deep_base = aura * 0.14 + np.array([0.025, 0.032, 0.055], dtype=np.float32)
     top_tint = aura * 0.28 + np.array([0.03, 0.04, 0.07], dtype=np.float32)
     bg = deep_base * (0.45 + 0.55 * v[..., None]) + top_tint * np.power(1.0 - v[..., None], 1.6)
 
-    # Upper-center celestial light portal (y ~ 0.29) + soft radial vignette
     cx, cy = 0.50, 0.29
-    dx = (u - cx)
+    dx = u - cx
     dy = (v - cy) * (MASTER_H / float(MASTER_W))
     rad = np.hypot(dx, dy)
     ang = np.arctan2(dy, dx)
@@ -167,15 +455,12 @@ def synthesize_procedural_bg(mid_rgba: np.ndarray, theme_palette, palettes_db: d
     bg += aura * (portal[..., None] * 0.42 + rays_env[..., None] * 0.16)
     bg += accent * (core_halo[..., None] * 0.34 + rays_env[..., None] * 0.10)
 
-    # Soft atmospheric nebula ribbons
     wave1 = np.sin(u * 5.2 + v * 3.1 + 0.6) * np.cos(v * 4.4 - u * 2.3)
     wave2 = np.cos(u * 7.8 - v * 4.9 + 1.4) * np.sin(v * 6.2 + u * 2.7)
     nebula = np.clip(0.5 + 0.5 * (0.6 * wave1 + 0.4 * wave2), 0.0, 1.0)
     nebula = np.power(nebula, 2.6) * np.exp(-((v - 0.48) ** 2) / (2.0 * 0.36 ** 2))
     bg += (0.65 * aura + 0.35 * accent) * nebula[..., None] * 0.20
 
-    # Deterministic fine bokeh & stardust specks
-    rng = np.random.default_rng(int(seed) + 771)
     for _ in range(95):
         sx = int(rng.uniform(0.06, 0.94) * MASTER_W)
         sy = int(rng.uniform(0.05, 0.92) * MASTER_H)
@@ -189,7 +474,6 @@ def synthesize_procedural_bg(mid_rgba: np.ndarray, theme_palette, palettes_db: d
         spot = np.exp(-d2 / (2.0 * max(sr * 0.65, 1.2) ** 2))
         bg[y0:y1, x0:x1] += spot[..., None] * (col * 0.75 + 0.25) * br
 
-    # Gentle outer vignette so subject & frame pop
     edge_r = np.hypot((u - 0.5) * 1.15, (v - 0.48) * 1.08)
     vig = 1.0 - 0.46 * np.clip((edge_r - 0.38) / 0.52, 0.0, 1.0) ** 1.6
     bg = np.clip(bg * vig[..., None], 0.0, 1.0)
@@ -345,14 +629,15 @@ def run_asset_lint(
     elif coverage_pct > 90.0 and mid_mode != "none":
         warnings.append(f"HIGH_SUBJECT_COVERAGE: mid opaque area is {coverage_pct}% (background may not have been removed; inspect cutout_check.png).")
 
-    if border_touch["top_pct"] > 1.5:
-        warnings.append(
-            f"EDGE_CLIPPING_TOP: {border_touch['top_pct']}% of top border is opaque (head/ears/crown/weapon may be clipped; consider mid_fit='contain' or wider headroom)."
-        )
-    if border_touch["left_pct"] > 2.5 or border_touch["right_pct"] > 2.5:
-        warnings.append(
-            f"EDGE_CLIPPING_SIDE: opaque subject touches left={border_touch['left_pct']}%, right={border_touch['right_pct']}% (limbs/props may clip during ±24° tilt)."
-        )
+    if mid_mode != "none":
+        if border_touch["top_pct"] > 1.5:
+            warnings.append(
+                f"EDGE_CLIPPING_TOP: {border_touch['top_pct']}% of top border is opaque (head/ears/crown/weapon may be clipped; consider mid_fit='contain' or wider headroom)."
+            )
+        if border_touch["left_pct"] > 2.5 or border_touch["right_pct"] > 2.5:
+            warnings.append(
+                f"EDGE_CLIPPING_SIDE: opaque subject touches left={border_touch['left_pct']}%, right={border_touch['right_pct']}% (limbs/props may clip during ±24° tilt)."
+            )
     if fringe_green > 0.14:
         warnings.append(f"FRINGE_GREEN_SPILL: semi-transparent edge shows green excess={fringe_green} (check cutout_check.png).")
     if fringe_magenta > 0.14:
@@ -778,13 +1063,33 @@ def build_masks_and_meta(bg_rgb: np.ndarray, mid_rgba: np.ndarray, fg_rgba: np.n
     if label_mode not in ("page_only", "on_card", "hidden"):
         label_mode = "page_only"
 
+    holo_pattern = str(cfg.get("holo_pattern", "starburst")).lower().strip()
+    if holo_pattern not in VALID_HOLO_PATTERNS:
+        holo_pattern = "starburst"
+
+    material_preset = str(cfg.get("material_preset", "sar_quicksand")).lower().strip()
+    if material_preset not in VALID_MATERIAL_PRESETS:
+        material_preset = "sar_quicksand"
+
+    lighting_preset = str(cfg.get("lighting_preset", "gallery_neutral")).lower().strip()
+    if lighting_preset not in VALID_LIGHTING_PRESETS:
+        lighting_preset = "gallery_neutral"
+
+    bg_preset = str(cfg.get("bg_preset", "celestial_nebula")).lower().strip()
+    if bg_preset not in VALID_BG_PRESETS:
+        bg_preset = "celestial_nebula"
+
     meta = {
         "title": str(cfg.get("title", "3D 全息流麻收藏卡")),
         "badge": str(cfg.get("badge", "SAR / UR")),
-        "subtitle": str(cfg.get("subtitle", "3D 交互全息流麻卡（悬停/拖拽/陀螺仪倾摆）")),
+        "subtitle": str(cfg.get("subtitle", "3D 交互全息流麻卡")),
         "label_mode": label_mode,
-        "studio_bg_label": str(cfg.get("studio_bg_label", "主题棚拍")),
-        "holo_pattern": str(cfg.get("holo_pattern", "starburst")),
+        "studio_bg_label": str(cfg.get("studio_bg_label", "暗绒展台")),
+        "holo_pattern": holo_pattern,
+        "material_preset": material_preset,
+        "lighting_preset": lighting_preset,
+        "bg_preset": bg_preset,
+        "frame_tint": cfg.get("frame_tint", "auto"),
         "seed": int(cfg.get("seed", 20261121)),
         "master_size": [MASTER_W, MASTER_H],
         "studio_color_rgb": studio_rgb,
@@ -829,8 +1134,10 @@ def main():
         raise FileNotFoundError(f"Could not find mid_rgba.png in {mat_dir} or mid layer in {raw_dir}")
 
     fg_path = (mat_dir / "fg_rgba.png") if (mat_dir / "fg_rgba.png").exists() else find_layer(raw_dir, ["fg", "fg_2k", "frame", "border"])
+    is_builtin_frame = False
     if fg_path is None:
         fg_path = resolve_fallback_frame(cfg.get("fallback_frame"))
+        is_builtin_frame = True
         print(f"Using built-in fallback frame: {fg_path.name}")
 
     with Image.open(mid_path) as raw_mid_im:
@@ -842,25 +1149,35 @@ def main():
     alpha_f = mid_rgba[..., 3].astype(np.float32) / 255.0
 
     bg_path = find_layer(raw_dir, ["bg", "bg_2k", "background"])
+    bg_preset_name = str(cfg.get("bg_preset", "celestial_nebula")).lower().strip()
     if bg_path is not None:
         bg_pil = resize_exact_3_4(Image.open(bg_path).convert("RGB"), "cover")
         bg_source = "user_supplied"
     else:
-        print("No bg layer supplied in 01_raw_layers/; synthesizing procedural atmospheric backdrop (zero-image-gen route).")
+        print(f"No bg layer supplied in 01_raw_layers/; synthesizing procedural backdrop (bg_preset={bg_preset_name}).")
         bg_pil = synthesize_procedural_bg(
             mid_rgba,
             cfg.get("theme_palette", "auto"),
             palettes_db,
             seed=int(cfg.get("seed", 20261121)),
+            bg_preset=bg_preset_name,
         )
-        bg_source = "procedural_synthesized"
+        bg_source = f"procedural:{bg_preset_name}"
 
     bg_rgb = np.array(bg_pil)
 
-    # Resolve palette early if baking an engraved on-card collector nameplate onto fg
+    # Resolve palette early for dynamic built-in frame tinting and/or engraved on-card nameplate
+    prelim_pal = resolve_palette(cfg.get("theme_palette", "auto"), bg_rgb, np.array(fg_pil), palettes_db)
+    fg_pil = apply_frame_tint(
+        fg_pil,
+        is_builtin_frame=is_builtin_frame,
+        frame_stem=fg_path.stem.lower(),
+        frame_tint=cfg.get("frame_tint", "auto"),
+        palette=prelim_pal,
+    )
+
     label_mode = str(cfg.get("label_mode", "page_only")).lower().strip()
     if label_mode == "on_card":
-        prelim_pal = resolve_palette(cfg.get("theme_palette", "auto"), bg_rgb, np.array(fg_pil), palettes_db)
         fg_pil = bake_on_card_nameplate(
             fg_pil,
             str(cfg.get("title", "")),

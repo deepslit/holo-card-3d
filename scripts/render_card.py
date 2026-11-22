@@ -254,6 +254,189 @@ def eval_sdf_motif_patch(dx: np.ndarray, dy: np.ndarray, size_px: float, rot_rad
 _CTX = {}
 
 
+def build_cracked_ice_map(aw: int, ah: int, seed: int) -> np.ndarray:
+    """Precompute Voronoi cracked-ice facet map (nx, ny, hue_phase, edge_glint) once per worker."""
+    gw, gh = 10, 13
+    rng = np.random.default_rng(seed + 4242)
+    pts_x = (np.arange(gw)[None, :] + rng.uniform(0.14, 0.86, (gh, gw))).astype(np.float32)
+    pts_y = (np.arange(gh)[:, None] + rng.uniform(0.14, 0.86, (gh, gw))).astype(np.float32)
+    # Per-cell tilted crystal facet normal + phase
+    n_xy = rng.uniform(-0.62, 0.62, (gh, gw, 2)).astype(np.float32)
+    ph = rng.uniform(0.0, 1.0, (gh, gw)).astype(np.float32)
+
+    yy, xx = np.mgrid[0:ah, 0:aw].astype(np.float32)
+    gx = (xx / float(aw)) * gw
+    gy = (yy / float(ah)) * gh
+    ix0 = np.clip(np.floor(gx).astype(np.int32), 0, gw - 1)
+    iy0 = np.clip(np.floor(gy).astype(np.int32), 0, gh - 1)
+
+    d1 = np.full((ah, aw), 1e9, dtype=np.float32)
+    d2 = np.full((ah, aw), 1e9, dtype=np.float32)
+    best_x = np.zeros((ah, aw), dtype=np.int32)
+    best_y = np.zeros((ah, aw), dtype=np.int32)
+
+    for dy in (-1, 0, 1):
+        ny_i = np.clip(iy0 + dy, 0, gh - 1)
+        for dx in (-1, 0, 1):
+            nx_i = np.clip(ix0 + dx, 0, gw - 1)
+            dist = np.hypot(gx - pts_x[ny_i, nx_i], gy - pts_y[ny_i, nx_i])
+            m1 = dist < d1
+            d2 = np.where(m1, d1, np.minimum(d2, dist))
+            d1 = np.where(m1, dist, d1)
+            best_x = np.where(m1, nx_i, best_x)
+            best_y = np.where(m1, ny_i, best_y)
+
+    edge = np.exp(-((d2 - d1) / 0.045) ** 2).astype(np.float32)
+    return np.dstack([
+        n_xy[best_y, best_x, 0],
+        n_xy[best_y, best_x, 1],
+        ph[best_y, best_x],
+        edge,
+    ]).astype(np.float32)
+
+
+def eval_cracked_ice_np(ice_map: np.ndarray, u: np.ndarray, v: np.ndarray, R: np.ndarray, h_vec: np.ndarray, tilt_shift: float) -> np.ndarray:
+    ice_s = sample_bilinear(ice_map, u, v, border_mode=cv2.BORDER_REPLICATE)
+    inx, iny = ice_s[..., 0], ice_s[..., 1]
+    inz = np.sqrt(np.maximum(0.12, 1.0 - inx * inx - iny * iny))
+    in_w_x = R[0, 0] * inx + R[0, 1] * iny + R[0, 2] * inz
+    in_w_y = R[1, 0] * inx + R[1, 1] * iny + R[1, 2] * inz
+    in_w_z = R[2, 0] * inx + R[2, 1] * iny + R[2, 2] * inz
+    ndh = np.clip(np.abs(in_w_x * h_vec[0] + in_w_y * h_vec[1] + in_w_z * h_vec[2]), 0.0, 1.0)
+    spec = np.power(ndh, 7.5)
+    flash = smoothstep(0.32, 0.88, spec)
+    edge = ice_s[..., 3] * (0.28 + 0.85 * spec)
+    prism = spectral_rainbow(ice_s[..., 2] * 2.4 + tilt_shift * 1.9 + 0.45 * ndh)
+    return prism * (0.08 + 0.92 * flash[..., None]) + np.array([0.98, 0.99, 1.0], dtype=np.float32) * (edge * 0.58 + np.power(ndh, 24.0) * 0.55)[..., None]
+
+
+def eval_holo_pattern_np(
+    u: np.ndarray, v: np.ndarray, holo_pattern: str, astro_cx: float, astro_cy: float,
+    yaw: float, pitch: float, tilt_shift: float, ice_map, R: np.ndarray, h_vec: np.ndarray
+) -> np.ndarray:
+    du = u - astro_cx
+    dv = (v - astro_cy) * (CH / CW)
+    ang_a = np.arctan2(dv, du)
+    rad_a = np.hypot(du, dv)
+    if holo_pattern == "prism_grid":
+        gx, gy = u * 9.0, v * 12.0
+        tx, ty = np.floor(gx), np.floor(gy)
+        fx, fy = gx - tx, gy - ty
+        tmask = (
+            smoothstep(0.0, 0.08, fx) * smoothstep(0.0, 0.08, 1.0 - fx)
+            * smoothstep(0.0, 0.08, fy) * smoothstep(0.0, 0.08, 1.0 - fy)
+        )
+        cph = np.mod(np.sin(tx * 12.9898 + ty * 78.233 + 7.13) * 43758.5453, 1.0).astype(np.float32)
+        sh = np.power(0.5 + 0.5 * np.cos(cph * 6.283 + yaw * 0.20 + pitch * 0.15), 2.2)
+        col = spectral_rainbow(cph * 1.9 + tilt_shift * 1.8)
+        return col * (tmask * (0.12 + 0.95 * sh))[..., None] + np.array([0.95, 0.98, 1.0], dtype=np.float32) * ((1.0 - tmask) * 0.25)[..., None]
+    if holo_pattern == "cosmos_waves":
+        wave = np.power(0.5 + 0.5 * np.sin(rad_a * 32.0 - ang_a * 4.0 + yaw * 0.18), 2.3)
+        col = spectral_rainbow(rad_a * 2.1 - tilt_shift * 1.5 + 0.18 * wave)
+        return col * (0.10 + 0.95 * wave)[..., None]
+    if holo_pattern == "cracked_ice" and ice_map is not None:
+        return eval_cracked_ice_np(ice_map, u, v, R, h_vec, tilt_shift)
+    if holo_pattern == "diagonal_foil":
+        diag = u - v * 1.35
+        band = np.power(0.5 + 0.5 * np.cos(diag * 24.0 + yaw * 0.22 + pitch * 0.12), 2.4)
+        brush = 0.72 + 0.28 * np.sin((u * 95.0 + v * 125.0) * math.pi)
+        col = spectral_rainbow(diag * 1.55 + tilt_shift * 1.85)
+        return col * (0.10 + 0.95 * band * brush)[..., None]
+    if holo_pattern == "diamond_lattice":
+        d1 = np.abs(np.sin((u * 11.0 + v * 14.5) * math.pi))
+        d2 = np.abs(np.sin((u * 11.0 - v * 14.5) * math.pi))
+        ridge = np.maximum(1.0 - smoothstep(0.0, 0.24, d1), 1.0 - smoothstep(0.0, 0.24, d2))
+        smod = 0.35 + 0.65 * np.power(0.5 + 0.5 * np.cos((u * 5.0 - v * 6.5) * math.pi + yaw * 0.18), 1.6)
+        col = spectral_rainbow(u * 1.35 + v * 1.10 + tilt_shift * 1.7)
+        return col * (ridge * smod * 1.05)[..., None]
+    rays = np.power(0.5 + 0.5 * np.cos(ang_a * 24.0 + yaw * 0.14), 2.4)
+    micro = 0.76 + 0.24 * np.sin((u * 110.0 + v * 145.0) * math.pi + yaw * 0.14)
+    col = spectral_rainbow(ang_a / (2.0 * math.pi) + rad_a * 1.35 + tilt_shift * 1.6)
+    return col * (0.10 + 0.95 * rays * micro)[..., None]
+
+
+def get_material_params(material_preset: str) -> dict:
+    m = str(material_preset or "sar_quicksand").lower().strip()
+    if m == "acrylic_brick":
+        return dict(
+            name=m, thickness_scale=1.85, crystal_edge=True, holo_mult=0.32, sand_mult=0.78,
+            seq_mult=1.85, emboss_mult=0.75, metal_mult=0.95, pearl_mult=0.65,
+            glass_mult=1.60, ice_overlay=0.0,
+        )
+    if m == "cracked_ice":
+        return dict(
+            name=m, thickness_scale=1.0, crystal_edge=False, holo_mult=0.85, sand_mult=0.15,
+            seq_mult=0.30, emboss_mult=1.15, metal_mult=1.15, pearl_mult=0.75,
+            glass_mult=0.95, ice_overlay=1.0,
+        )
+    if m == "etched_foil":
+        return dict(
+            name=m, thickness_scale=1.14, crystal_edge=False, holo_mult=0.65, sand_mult=0.0,
+            seq_mult=0.0, emboss_mult=2.60, metal_mult=1.75, pearl_mult=0.35,
+            glass_mult=0.80, ice_overlay=0.0,
+        )
+    if m == "matte_velvet":
+        return dict(
+            name=m, thickness_scale=1.0, crystal_edge=False, holo_mult=0.0, sand_mult=0.0,
+            seq_mult=0.0, emboss_mult=0.30, metal_mult=2.55, pearl_mult=0.0,
+            glass_mult=0.08, ice_overlay=0.0,
+        )
+    if m == "clean_tcg":
+        return dict(
+            name=m, thickness_scale=1.0, crystal_edge=False, holo_mult=1.45, sand_mult=0.0,
+            seq_mult=0.0, emboss_mult=1.05, metal_mult=1.05, pearl_mult=0.90,
+            glass_mult=1.25, ice_overlay=0.0,
+        )
+    return dict(
+        name="sar_quicksand", thickness_scale=1.0, crystal_edge=False, holo_mult=1.0, sand_mult=1.0,
+        seq_mult=1.0, emboss_mult=1.0, metal_mult=1.0, pearl_mult=1.0,
+        glass_mult=1.0, ice_overlay=0.0,
+    )
+
+
+def get_lighting_params(lighting_preset: str, aura_c: np.ndarray, sand2_c: np.ndarray) -> dict:
+    lp = str(lighting_preset or "gallery_neutral").lower().strip()
+    if lp == "dramatic_rim":
+        return dict(
+            key_col=np.array([0.96, 0.99, 1.05], dtype=np.float32),
+            diff_base=0.76, diff_amp=0.32, rim_str=0.48,
+            rim_col=(0.55 * aura_c + 0.45 * sand2_c).astype(np.float32),
+            sheen_tint=np.array([0.88, 0.95, 1.05], dtype=np.float32),
+            shadow_str=0.56,
+        )
+    if lp == "golden_hour":
+        return dict(
+            key_col=np.array([1.06, 0.96, 0.82], dtype=np.float32),
+            diff_base=0.88, diff_amp=0.20, rim_str=0.28,
+            rim_col=np.array([1.00, 0.84, 0.48], dtype=np.float32),
+            sheen_tint=np.array([1.00, 0.93, 0.78], dtype=np.float32),
+            shadow_str=0.46,
+        )
+    if lp == "moonlit_prism":
+        return dict(
+            key_col=np.array([0.86, 0.94, 1.07], dtype=np.float32),
+            diff_base=0.84, diff_amp=0.22, rim_str=0.34,
+            rim_col=np.array([0.58, 0.82, 1.00], dtype=np.float32),
+            sheen_tint=np.array([0.84, 0.94, 1.00], dtype=np.float32),
+            shadow_str=0.52,
+        )
+    if lp == "soft_pastel":
+        return dict(
+            key_col=np.array([1.02, 1.00, 1.01], dtype=np.float32),
+            diff_base=0.95, diff_amp=0.10, rim_str=0.12,
+            rim_col=np.array([1.00, 0.96, 0.99], dtype=np.float32),
+            sheen_tint=np.array([1.00, 0.98, 0.99], dtype=np.float32),
+            shadow_str=0.28,
+        )
+    return dict(
+        key_col=np.array([1.00, 1.00, 1.00], dtype=np.float32),
+        diff_base=0.90, diff_amp=0.16, rim_str=0.0,
+        rim_col=aura_c.astype(np.float32),
+        sheen_tint=np.array([0.92, 0.96, 1.00], dtype=np.float32),
+        shadow_str=0.44,
+    )
+
+
 def _init_worker(proc_dir_str: str, num_frames: int):
     """Load preprocessed assets once per worker process (Windows spawn safe)."""
     cv2.setNumThreads(1)
@@ -310,6 +493,11 @@ def _init_worker(proc_dir_str: str, num_frames: int):
     if pm_path.exists() and (meta.get("prop_fx") or {}).get("enabled"):
         prop_mask_img = np.array(Image.open(pm_path).convert("L").resize((AW, AH), Image.Resampling.LANCZOS), dtype=np.float32) / 255.0
 
+    mat_name = str(meta.get("material_preset", "sar_quicksand")).lower().strip()
+    holo_name = str(meta.get("holo_pattern", "starburst")).lower().strip()
+    ice_map = build_cracked_ice_map(AW, AH, seed) if (mat_name == "cracked_ice" or holo_name == "cracked_ice") else None
+    seq_count = 440 if mat_name == "acrylic_brick" else 300
+
     _CTX.update({
         "meta": meta,
         "pal": pal,
@@ -317,6 +505,7 @@ def _init_worker(proc_dir_str: str, num_frames: int):
         "mid_raw": mid_raw,
         "masks_raw": masks_raw,
         "prop_mask": prop_mask_img,
+        "ice_map": ice_map,
         "bg_dof": bg_dof,
         "fg_dof": fg_dof,
         "depth_alpha_pack": depth_alpha_pack,
@@ -327,7 +516,7 @@ def _init_worker(proc_dir_str: str, num_frames: int):
         "px_base": px_base,
         "py_base": py_base,
         "studio_bg": studio_bg,
-        "sequins": build_sequins(seed, pal["sequins"], count=300),
+        "sequins": build_sequins(seed, pal["sequins"], count=seq_count),
         "parts": build_space_particles(seed, pal["part1"], pal["part2"], n_back=34, n_front=22),
     })
 
@@ -357,7 +546,10 @@ def render_single_frame(f_idx: int):
     aura_c = np.array(pal["aura"], dtype=np.float32)
     sand1_c = np.array(pal["sand1"], dtype=np.float32)
     sand2_c = np.array(pal["sand2"], dtype=np.float32)
-    holo_pattern = meta.get("holo_pattern", "starburst")
+    holo_pattern = str(meta.get("holo_pattern", "starburst")).lower().strip()
+    mat_p = get_material_params(meta.get("material_preset", "sar_quicksand"))
+    lit_p = get_lighting_params(meta.get("lighting_preset", "gallery_neutral"), aura_c, sand2_c)
+    ice_map = _CTX.get("ice_map")
 
     astro_cx, astro_cy = meta["astrolabe_center"]
     z_back = -0.082 * CW
@@ -366,7 +558,7 @@ def render_single_frame(f_idx: int):
     z_mid_base = -0.012 * CW
     z_mid_amp = 0.064 * CW
     z_fg_base = 0.008 * CW
-    thickness = 0.036 * CW
+    thickness = 0.036 * CW * mat_p["thickness_scale"]
     slice_zs = [-thickness * (s / 10.0) for s in range(1, 11)]
 
     t = f_idx / float(num_frames)
@@ -434,8 +626,14 @@ def render_single_frame(f_idx: int):
         ndotl_e = np.clip(nx_e * light_loc[0] + ny_e * light_loc[1] + nz_e * light_loc[2], 0.0, 1.0)
         ndoth_e = np.clip(nx_e * h_loc[0] + ny_e * h_loc[1] + nz_e * h_loc[2], 0.0, 1.0)
         grain = 0.88 + 0.12 * np.sin((edge_hit_x + edge_hit_y) * 0.55 + edge_hit_s * 14.0)
-        edge_rgb = (edge_base_c * (0.45 + 0.65 * ndotl_e[..., None]) + edge_spec_c * (0.85 * (ndoth_e ** 18)[..., None])) * grain[..., None]
-        edge_rgb *= 1.0 - 0.28 * edge_hit_s[..., None]
+        if mat_p["crystal_edge"]:
+            cryst_base = np.array([0.74, 0.82, 0.92], dtype=np.float32) * 0.65 + edge_spec_c * 0.35
+            cryst_spec = np.array([0.96, 0.99, 1.00], dtype=np.float32)
+            edge_rgb = (cryst_base * (0.48 + 0.52 * ndotl_e[..., None]) + cryst_spec * (1.05 * (ndoth_e ** 24)[..., None])) * (0.94 + 0.06 * grain[..., None])
+            edge_rgb *= 1.0 - 0.16 * edge_hit_s[..., None]
+        else:
+            edge_rgb = (edge_base_c * (0.45 + 0.65 * ndotl_e[..., None]) + edge_spec_c * (0.85 * (ndoth_e ** 18)[..., None])) * grain[..., None]
+            edge_rgb *= 1.0 - 0.28 * edge_hit_s[..., None]
 
     ys_c, xs_c = np.where(front_mask > 0.004)
     y0_c, y1_c = int(ys_c.min()), int(ys_c.max()) + 1
@@ -468,23 +666,14 @@ def render_single_frame(f_idx: int):
     bg_col = sample_bilinear(bg_dof, ub_os, vb_os, border_mode=cv2.BORDER_REPLICATE)
     r_holo_mask = sample_bilinear(masks_raw[..., 0], ub_os, vb_os, border_mode=cv2.BORDER_REPLICATE)
 
-    du_a = ub_os - astro_cx
-    dv_a = (vb_os - astro_cy) * (CH / CW)
-    ang_a = np.arctan2(dv_a, du_a)
-    rad_a = np.hypot(du_a, dv_a)
-    if holo_pattern == "prism_grid":
-        carrier = 0.5 + 0.5 * np.cos((ub_os * 36.0 + vb_os * 48.0) * math.pi + yaw * 0.09) * np.cos((ub_os * 36.0 - vb_os * 48.0) * math.pi - pitch * 0.08)
-    elif holo_pattern == "cosmos_waves":
-        carrier = 0.5 + 0.5 * np.sin(rad_a * 20.0 - ang_a * 6.0 + yaw * 0.10)
-    else:
-        carrier = 0.5 + 0.5 * np.cos(ang_a * 24.0 + yaw * 0.08)
-    micro_grating = 0.5 + 0.5 * np.sin((ub_os * 110.0 + vb_os * 145.0) * math.pi + yaw * 0.14)
+    h_vec_bg = light_dir + np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    h_vec_bg /= np.linalg.norm(h_vec_bg)
     tilt_shift = 0.016 * yaw + 0.012 * pitch
-    spec1 = spectral_rainbow(ub_os * 1.45 + vb_os * 0.95 + tilt_shift * 1.4 + 0.08 * carrier)
-    spec2 = spectral_rainbow(rad_a * 2.1 - tilt_shift * 1.1 + 0.12 * micro_grating)
-    holo_comb = 0.58 * spec1 + 0.42 * spec2
-    holo_strength = r_holo_mask * (0.20 + 0.24 * carrier * (0.5 + 0.5 * micro_grating))
-    bg_lit = bg_col + holo_comb * holo_strength[..., None] * 0.55
+
+    holo_pat_bg = eval_holo_pattern_np(ub_os, vb_os, holo_pattern, astro_cx, astro_cy, yaw, pitch, tilt_shift, ice_map, R, h_vec_bg)
+    bg_lit = bg_col + holo_pat_bg * (r_holo_mask[..., None] * 0.52 * mat_p["holo_mult"])
+    if ice_map is not None and mat_p["ice_overlay"] > 0.01 and holo_pattern != "cracked_ice":
+        bg_lit = bg_lit + eval_cracked_ice_np(ice_map, ub_os, vb_os, R, h_vec_bg, tilt_shift) * (r_holo_mask[..., None] * 0.42)
 
     # Deep plane bespoke SDF motifs inside card
     if motif_id >= 0:
@@ -509,51 +698,55 @@ def render_single_frame(f_idx: int):
                 mcol, ma = eval_sdf_motif_patch(xxm - mpx, yym - mpy, msz, rot_a, ang + db * 1.7, float(db), motif_id, False, mc1, mc2, ang)
                 bg_lit[iy0:iy1, ix0:ix1] = bg_lit[iy0:iy1, ix0:ix1] * (1.0 - ma[..., None] * 0.72) + mcol * (ma[..., None] * 0.72)
 
-    # 2. Flowing Quicksand Interlayer + 300 3D sequins
+    # 2. Flowing Quicksand Interlayer + 3D sequins (modulated by material_preset)
     us1, vs1 = plane_uv(z_sand1)
-    us2, vs2 = plane_uv(z_sand2)
-    grav_x = 0.025 * math.sin(math.radians(yaw))
-    grav_y = 0.020 * math.sin(math.radians(pitch))
-    flow1 = np.sin((us1 + grav_x) * 18.0 + vs1 * 9.0 + ang) * np.cos((vs1 + grav_y) * 14.0 - us1 * 7.0 - ang)
-    silk1 = np.power(np.clip(0.5 + 0.5 * flow1, 0.0, 1.0), 3.2) * (0.4 + 0.6 * r_holo_mask)
-    flow2 = np.sin((us2 - grav_x * 1.3) * 24.0 - vs2 * 13.0 - 2.0 * ang) * np.cos((vs2 + grav_y * 1.2) * 19.0 + us2 * 11.0 + ang)
-    silk2 = np.power(np.clip(0.5 + 0.5 * flow2, 0.0, 1.0), 3.6) * (0.35 + 0.65 * r_holo_mask)
-    sand_glow = silk1[..., None] * sand1_c * 0.24 + silk2[..., None] * sand2_c * 0.22
-    bg_with_sand = bg_lit + sand_glow
+    bg_with_sand = bg_lit.copy()
+    if mat_p["sand_mult"] > 0.01:
+        us2, vs2 = plane_uv(z_sand2)
+        grav_x = 0.025 * math.sin(math.radians(yaw))
+        grav_y = 0.020 * math.sin(math.radians(pitch))
+        flow1 = np.sin((us1 + grav_x) * 18.0 + vs1 * 9.0 + ang) * np.cos((vs1 + grav_y) * 14.0 - us1 * 7.0 - ang)
+        silk1 = np.power(np.clip(0.5 + 0.5 * flow1, 0.0, 1.0), 3.2) * (0.4 + 0.6 * r_holo_mask)
+        flow2 = np.sin((us2 - grav_x * 1.3) * 24.0 - vs2 * 13.0 - 2.0 * ang) * np.cos((vs2 + grav_y * 1.2) * 19.0 + us2 * 11.0 + ang)
+        silk2 = np.power(np.clip(0.5 + 0.5 * flow2, 0.0, 1.0), 3.6) * (0.35 + 0.65 * r_holo_mask)
+        sand_glow = (silk1[..., None] * sand1_c * 0.24 + silk2[..., None] * sand2_c * 0.22) * mat_p["sand_mult"]
+        bg_with_sand = bg_with_sand + sand_glow
 
-    h_vec = light_dir + np.array([0.0, 0.0, 1.0], dtype=np.float32)
-    h_vec /= np.linalg.norm(h_vec)
-    sq_n_world = (R @ sequins["n"].T).T
-    sq_spec = np.power(np.clip(np.abs(sq_n_world @ h_vec), 0.0, 1.0), 36.0)
-    sq_diff = 0.22 + 0.78 * np.clip(np.abs(sq_n_world @ light_dir), 0.0, 1.0)
-    sq_br = sq_diff * 0.35 + sq_spec * 1.45
+    if mat_p["seq_mult"] > 0.01:
+        h_vec = light_dir + np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        h_vec /= np.linalg.norm(h_vec)
+        sq_n_world = (R @ sequins["n"].T).T
+        sq_spec = np.power(np.clip(np.abs(sq_n_world @ h_vec), 0.0, 1.0), 36.0)
+        sq_diff = 0.22 + 0.78 * np.clip(np.abs(sq_n_world @ light_dir), 0.0, 1.0)
+        sq_br = sq_diff * 0.35 + sq_spec * 1.45
 
-    su = sequins["u"] + 0.012 * np.sin(ang * sequins["speed"] + sequins["phase"]) + 0.022 * math.sin(math.radians(yaw))
-    sv = sequins["v"] + 0.014 * np.cos(ang * sequins["speed"] + sequins["phase"]) + 0.018 * math.sin(math.radians(pitch))
-    comp_sq = (D_CAM - sequins["z"] * CW) / D_CAM
-    sq_loc = np.stack([(su - 0.5) * CW * comp_sq, (sv - 0.5) * CH * comp_sq, sequins["z"] * CW], axis=1)
-    sq_cam = (R @ sq_loc.T).T
-    sq_px = sq_cam[:, 0] * D_CAM / (D_CAM - sq_cam[:, 2]) + W * 0.5 - x0_c
-    sq_py = (sq_cam[:, 1] + hover_y) * D_CAM / (D_CAM - sq_cam[:, 2]) + H * 0.5 - y0_c
+        su = sequins["u"] + 0.012 * np.sin(ang * sequins["speed"] + sequins["phase"]) + 0.022 * math.sin(math.radians(yaw))
+        sv = sequins["v"] + 0.014 * np.cos(ang * sequins["speed"] + sequins["phase"]) + 0.018 * math.sin(math.radians(pitch))
+        comp_sq = (D_CAM - sequins["z"] * CW) / D_CAM
+        sq_loc = np.stack([(su - 0.5) * CW * comp_sq, (sv - 0.5) * CH * comp_sq, sequins["z"] * CW], axis=1)
+        sq_cam = (R @ sq_loc.T).T
+        sq_px = sq_cam[:, 0] * D_CAM / (D_CAM - sq_cam[:, 2]) + W * 0.5 - x0_c
+        sq_py = (sq_cam[:, 1] + hover_y) * D_CAM / (D_CAM - sq_cam[:, 2]) + H * 0.5 - y0_c
 
-    for qi in range(len(su)):
-        qx, qy = float(sq_px[qi]), float(sq_py[qi])
-        qr = float(sequins["rad"][qi])
-        if qx < -qr * 2 or qx >= hc_w + qr * 2 or qy < -qr * 2 or qy >= hc_h + qr * 2:
-            continue
-        bx0, bx1 = max(0, int(qx - qr * 2.2)), min(hc_w, int(qx + qr * 2.2) + 1)
-        by0, by1 = max(0, int(qy - qr * 2.2)), min(hc_h, int(qy + qr * 2.2) + 1)
-        if bx1 <= bx0 or by1 <= by0:
-            continue
-        yy_s, xx_s = np.mgrid[by0:by1, bx0:bx1]
-        r2 = (xx_s - qx) ** 2 + (yy_s - qy) ** 2
-        spot = np.exp(-r2 / (2.0 * (qr * 0.55) ** 2))
-        bg_with_sand[by0:by1, bx0:bx1] += spot[..., None] * sequins["col"][qi] * float(sq_br[qi]) * 0.85
+        seq_scale = 0.85 * mat_p["seq_mult"]
+        for qi in range(len(su)):
+            qx, qy = float(sq_px[qi]), float(sq_py[qi])
+            qr = float(sequins["rad"][qi])
+            if qx < -qr * 2 or qx >= hc_w + qr * 2 or qy < -qr * 2 or qy >= hc_h + qr * 2:
+                continue
+            bx0, bx1 = max(0, int(qx - qr * 2.2)), min(hc_w, int(qx + qr * 2.2) + 1)
+            by0, by1 = max(0, int(qy - qr * 2.2)), min(hc_h, int(qy + qr * 2.2) + 1)
+            if bx1 <= bx0 or by1 <= by0:
+                continue
+            yy_s, xx_s = np.mgrid[by0:by1, bx0:bx1]
+            r2 = (xx_s - qx) ** 2 + (yy_s - qy) ** 2
+            spot = np.exp(-r2 / (2.0 * (qr * 0.55) ** 2))
+            bg_with_sand[by0:by1, bx0:bx1] += spot[..., None] * sequins["col"][qi] * float(sq_br[qi]) * seq_scale
 
     sh_ox = -light_loc[0] * 0.042
     sh_oy = -light_loc[1] * 0.042 * (CW / CH)
     sh_alpha = cv2.GaussianBlur(sample_bilinear(mid_raw[..., 3], us1 - sh_ox, vs1 - sh_oy), (25, 25), 7.5)
-    bg_with_sand *= 1.0 - 0.44 * sh_alpha[..., None]
+    bg_with_sand *= 1.0 - lit_p["shadow_str"] * sh_alpha[..., None]
 
     # 3. Midground 3D Subject (18 + 4 binary Relief Mapping)
     z_start = z_mid_base + z_mid_amp
@@ -595,7 +788,7 @@ def render_single_frame(f_idx: int):
     m_sar_v = sample_bilinear(sar_vec, um, vm, border_mode=cv2.BORDER_REPLICATE)
 
     ndotl = m_norm[..., 0] * light_loc[0] + m_norm[..., 1] * light_loc[1] + m_norm[..., 2] * light_loc[2]
-    diffuse_gain = 0.90 + 0.16 * np.clip(0.5 * ndotl + 0.5, 0.0, 1.0)
+    diffuse_gain = lit_p["diff_base"] + lit_p["diff_amp"] * np.clip(0.5 * ndotl + 0.5, 0.0, 1.0)
 
     vx, vy, vz = -dlx_c, -dly_c, -dlz_c
     hx, hy, hz = vx + light_loc[0], vy + light_loc[1], vz + light_loc[2]
@@ -604,11 +797,13 @@ def render_single_frame(f_idx: int):
     ndoth = np.clip(m_norm[..., 0] * hx + m_norm[..., 1] * hy + m_norm[..., 2] * hz, 0.0, 1.0)
     ndotv = np.clip(m_norm[..., 0] * vx + m_norm[..., 1] * vy + m_norm[..., 2] * vz, 0.0, 1.0)
 
-    metal_spec = np.power(ndoth, 28.0) * m_metal * 0.78
-    metal_brushed = (0.5 + 0.5 * np.sin((um * 95.0 - vm * 35.0) * math.pi + yaw * 0.1)) * m_metal * 0.14
+    metal_spec = np.power(ndoth, 28.0) * m_metal * (0.78 * mat_p["metal_mult"])
+    metal_brushed = (0.5 + 0.5 * np.sin((um * 95.0 - vm * 35.0) * math.pi + yaw * 0.1)) * m_metal * (0.14 * mat_p["metal_mult"])
     sar_dot = np.clip(m_sar_v[..., 0] * light_loc[0] + m_sar_v[..., 1] * light_loc[1], 0.0, 1.0)
-    sar_emboss = sar_dot * m_sar_b * 0.28
-    pearl_rim = spectral_rainbow(um + vm + 0.015 * yaw) * (np.power(1.0 - ndotv, 3.2) * 0.22)[..., None] * 0.55
+    sar_emboss = sar_dot * m_sar_b * (0.28 * mat_p["emboss_mult"])
+    fresnel_m = np.power(1.0 - ndotv, 3.2)
+    pearl_rim = spectral_rainbow(um + vm + 0.015 * yaw) * (fresnel_m * 0.22 * mat_p["pearl_mult"])[..., None] * 0.55
+    lit_rim = lit_p["rim_col"][None, None, :] * (fresnel_m * lit_p["rim_str"])[..., None]
 
     prop_gleam = np.zeros_like(m_rgb)
     if prop_enabled:
@@ -641,7 +836,14 @@ def render_single_frame(f_idx: int):
                 + p_tint[None, None, :] * subtle_catch[..., None]
             ) * (pm_val * ink_keep * p_gain)[..., None]
 
-    m_lit = m_rgb * diffuse_gain[..., None] + metal_tint_c[None, None, :] * (metal_spec + metal_brushed)[..., None] + sar_emboss[..., None] + pearl_rim + prop_gleam
+    m_lit = (
+        m_rgb * (diffuse_gain[..., None] * lit_p["key_col"][None, None, :])
+        + metal_tint_c[None, None, :] * (metal_spec + metal_brushed)[..., None]
+        + sar_emboss[..., None]
+        + pearl_rim
+        + lit_rim
+        + prop_gleam
+    )
     m_ex = np.maximum(m_lit - 0.85, 0.0)
     m_lit = np.where(m_lit > 0.85, 0.85 + m_ex / (1.0 + 1.4 * m_ex), m_lit)
     card_rgb = bg_with_sand * (1.0 - m_a[..., None]) + np.clip(m_lit, 0.0, 1.0) * m_a[..., None]
@@ -675,16 +877,57 @@ def render_single_frame(f_idx: int):
 
     card_rgb = card_rgb * (1.0 - fg_acc_a[..., None]) + fg_acc_rgb * fg_acc_a[..., None]
 
-    # 5. Diagonal Glass Sweep + Spotlight + Bevel Sheen
+    # 5. Post-Composite Surface Lamination & Craft Coat + Diagonal Glass Sweep (face-protected!)
     ug, vg = plane_uv(0.0)
+    ug_c = np.clip(ug, 0.0, 1.0)
+    vg_c = np.clip(vg, 0.0, 1.0)
+    fb_c = meta.get("face_box") or [0.40, 0.20, 0.60, 0.35]
+    fcx_c, fcy_c = 0.5 * (fb_c[0] + fb_c[2]), 0.5 * (fb_c[1] + fb_c[3])
+    frx_c, fry_c = max(0.5 * (fb_c[2] - fb_c[0]), 0.08), max(0.5 * (fb_c[3] - fb_c[1]), 0.08)
+    face_protect = smoothstep(0.66, 1.38, np.hypot((ug_c - fcx_c) / frx_c, (vg_c - fcy_c) / fry_c))
+
     sweep_u = 0.62 + 0.78 * math.sin(ang)
     band_dist = (ug * 0.72 + vg * 0.52) - sweep_u
+    broad_sweep = 0.28 + 0.72 * np.exp(-(band_dist ** 2) / 0.14)
+    m_name = mat_p["name"]
+
+    if m_name == "matte_velvet":
+        spot_metal = np.maximum(sample_bilinear(masks_raw[..., 1], ug_c, vg_c) * m_a, fg_acc_a * 0.85)
+        matte_col = np.power(np.maximum(card_rgb, 0.001), 1.13) * 0.90
+        mix_m = np.clip(spot_metal * 1.15, 0.0, 1.0)[..., None]
+        card_rgb = matte_col * (1.0 - mix_m) + card_rgb * mix_m
+        spot_foil = np.exp(-(band_dist ** 2) / 0.025) * spot_metal * 0.42
+        card_rgb = np.clip(card_rgb + metal_tint_c[None, None, :] * spot_foil[..., None], 0.0, 1.0)
+    else:
+        top_holo_base = 0.46 if m_name == "clean_tcg" else (0.12 if m_name == "acrylic_brick" else (0.16 if m_name == "etched_foil" else 0.28))
+        top_holo_rgb = eval_holo_pattern_np(ug_c, vg_c, holo_pattern, astro_cx, astro_cy, yaw, pitch, tilt_shift, ice_map, R, h_vec_bg)
+        card_rgb = np.clip(card_rgb + top_holo_rgb * (top_holo_base * face_protect * broad_sweep)[..., None] * (1.0 - 0.52 * card_rgb), 0.0, 1.0)
+
+        if m_name == "acrylic_brick":
+            inner_glass = smoothstep(-15.0, -1.2, sd0_c) * (1.0 - smoothstep(-1.5, 0.5, sd0_c))
+            prism_rim = np.array([0.92, 0.97, 1.0], dtype=np.float32) * 0.62 + spectral_rainbow(ug_c * 2.0 + vg_c * 2.0 + tilt_shift * 2.5) * 0.38
+            card_rgb = np.clip(card_rgb + prism_rim * (inner_glass * (0.28 + 0.35 * broad_sweep))[..., None], 0.0, 1.0)
+        elif m_name == "cracked_ice" and ice_map is not None:
+            ice_top = eval_cracked_ice_np(ice_map, ug_c, vg_c, R, h_vec_bg, tilt_shift)
+            ice_amt = (0.48 + 0.22 * (1.0 - m_a)) * face_protect
+            card_rgb = np.clip(card_rgb + ice_top * ice_amt[..., None] * (1.0 - 0.48 * card_rgb), 0.0, 1.0)
+        elif m_name == "etched_foil":
+            d_top = sample_bilinear(depth_alpha_pack[..., 0], ug_c, vg_c, border_mode=cv2.BORDER_REPLICATE)
+            luma_top = 0.299 * card_rgb[..., 0] + 0.587 * card_rgb[..., 1] + 0.114 * card_rgb[..., 2]
+            ridge_w = np.sin(d_top * 130.0 + (ug_c * 20.0 - vg_c * 16.0) + luma_top * 14.0 + yaw * 0.14)
+            etch_line = np.power(0.5 + 0.5 * ridge_w, 5.0)
+            foil_c = metal_tint_c * 0.55 + edge_spec_c * 0.45
+            card_rgb = np.clip(card_rgb + foil_c[None, None, :] * (etch_line * face_protect * (0.22 + 0.44 * broad_sweep))[..., None], 0.0, 1.0)
+
     glass_band = np.exp(-(band_dist ** 2) / 0.0085) * 0.11 + np.exp(-(band_dist ** 2) / 0.0009) * 0.13
+    if m_name == "acrylic_brick":
+        band_d2 = (ug * 0.72 + vg * 0.52) - (sweep_u - 0.24)
+        glass_band = glass_band + np.exp(-(band_d2 ** 2) / 0.0022) * 0.14
     spot_x = 0.5 + 0.28 * math.sin(ang)
     spot_y = 0.44 + 0.22 * math.cos(2.0 * ang)
     spotlight = np.exp(-((ug - spot_x) ** 2 + ((vg - spot_y) * CH / CW) ** 2) / 0.16) * 0.08
     bevel_rim = smoothstep(-4.5, -0.5, sd0_c) * (0.09 + 0.20 * np.maximum(0.0, math.sin(ang) * (ug - 0.5) * 2.0 + 0.5))
-    sheen_col = np.array([0.92, 0.96, 1.0], np.float32) * (glass_band + spotlight + bevel_rim)[..., None]
+    sheen_col = lit_p["sheen_tint"][None, None, :] * ((glass_band + spotlight + bevel_rim) * mat_p["glass_mult"])[..., None]
     card_rgb = np.clip(card_rgb + sheen_col * (1.0 - 0.72 * card_rgb), 0.0, 1.0)
 
     card_canvas_rgb = np.zeros((H, W, 3), dtype=np.float32)

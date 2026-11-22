@@ -1,4 +1,4 @@
-# Standard Specification (`holo-card-3d` · v2.2)
+# Standard Specification (`holo-card-3d` · v2.3)
 
 Every execution must conform to these verified quality, optical, motion, and verification standards unless the user explicitly overrides a parameter.
 
@@ -20,7 +20,7 @@ Interactive HTML and pre-rendered animated WebP/GIF use **different frame rates*
 
 | Route | Use When | `mid` Handling | `bg` Handling | `fg` / `mid_depth` |
 | :--- | :--- | :--- | :--- | :--- |
-| **Route 1: Keep Original (Zero Image Gen)** | User wants their exact uploaded image kept pixel-faithful | Local pixel cutout (`matte_layers.py`: `rgba`, `green`, `magenta`, `blue`, `solid`, `grabcut`, or `none`) | Auto-synthesized procedural atmospheric backdrop (`bg_source: procedural_synthesized`) if `bg.*` omitted | Bundled `assets/frames/*.png` + `--auto-depth` |
+| **Route 1: Keep Original (Zero Image Gen)** | User wants their exact uploaded image kept pixel-faithful | Local matting (`matte_layers.py`: `rgba`, `green`, `magenta`, `blue`, or `solid` cutout; complex/non-uniform full illustrations & photos default to full-bleed opaque `none` — never auto-running `grabcut`) | Auto-synthesized procedural backdrop (`bg_preset`, when subject has transparency) or preserved inside full-bleed `mid` (`none`) | Bundled `assets/frames/*.png` (`frame_tint: "auto"`) + `--auto-depth` |
 | **Route 2: Hybrid** | Keep original subject + replace BG/frame (or keep BG + custom subject) | Local cutout for preserved layer | Custom generated/supplied or procedural | Custom or bundled |
 | **Route 3: Reference-Based AI Redraw** | Style transfer, pose redesign, or full TCG re-illustration | AI-generated `mid.png` (Track A) or user-supplied (Track B) | AI-generated/supplied `bg.png` | Custom `fg.png` or bundled; optional `mid_depth.png` or `--auto-depth` |
 
@@ -90,11 +90,15 @@ Key `card_config.json` fields:
 - `title`, `badge`, `subtitle`, `studio_bg_label`, `seed`.
 - `label_mode`: `"page_only"` *(default: HTML HUD only, clean art-first card face)* | `"on_card"` *(engraved metallic bottom nameplate on card face + HTML HUD)* | `"hidden"` *(no HUD pill and no on-card nameplate)*.
 - `theme_palette`: `"auto"` or palette key (`"celestial-gold"`, `"crimson-gold"`, `"sakura-rose"`, `"cyber-neon"`, `"silver-frost"`, `"emerald-jade"`, `"ink-gold"`) or custom RGB dict.
-- `holo_pattern`: `"starburst"` | `"prism_grid"` | `"cosmos_waves"`.
-- `fallback_frame`: `null` | `"classic_sar_gold"` | `"minimal_platinum"` | `"cyber_hud_frame"`.
+- `bg_preset`: Procedural zero-image-gen backdrop when `01_raw_layers/bg.*` is omitted: `"celestial_nebula"` *(default)* | `"stained_glass"` | `"cyber_grid"` | `"ink_wash"` | `"pastel_bokeh"` | `"obsidian_velvet"`.
+- `holo_pattern`: `"starburst"` | `"prism_grid"` | `"cosmos_waves"` | `"cracked_ice"` | `"diagonal_foil"` | `"diamond_lattice"`.
+- `material_preset`: Dual-end (WebGL2 + CPU WebP/GIF) craft finish: `"sar_quicksand"` *(default)* | `"acrylic_brick"` | `"cracked_ice"` | `"etched_foil"` | `"matte_velvet"` | `"clean_tcg"`.
+- `lighting_preset`: Dual-end studio lighting rig: `"gallery_neutral"` *(default)* | `"dramatic_rim"` | `"golden_hour"` | `"moonlit_prism"` | `"soft_pastel"`.
+- `fallback_frame`: `null` | `"classic_sar_gold"` | `"minimal_platinum"` | `"cyber_hud_frame"` | `"full_art_glass"` | `"baroque_arch"` | `"eastern_ink"` | `"y2k_polaroid"` | `"gothic_spire"`.
+- `frame_tint`: `"auto"` *(default: luminance-preserving palette tint on built-in metallic frames; keeps custom `fg` untouched)* | `"original"` | `[r, g, b]`.
 - `mid_fit`: `"auto"` *(default: switches non-3:4 images to `contain_safe` if cover would crop opaque subject)* | `"contain"` | `"cover"`.
 - `face_box`: `"auto"` | `null` | `[x0, y0, x1, y1]`.
-- `key_color`: `"auto"` | `"rgba"` | `"green"` | `"magenta"` | `"blue"` | `"solid"` | `"grabcut"` | `"none"`.
+- `key_color`: `"auto"` *(auto-detects `rgba` / `green` / `magenta` / `blue` / `solid`; defaults to full-bleed opaque `"none"` on complex non-uniform backgrounds)* | `"rgba"` | `"green"` | `"magenta"` | `"blue"` | `"solid"` | `"none"` | `"grabcut"` *(opt-in only)*.
 - `prop_fx`: `{"enabled": bool, "start_uv": [u, v], "tip_uv": [u, v], "tint": "auto" | [r,g,b], "gain": 0.90, "feather_sigma": 1.6, "exclude_skin_in_exclude_zones": true, "mask_polygons": [[[u,v], ...]], "exclude_polygons": [[[u,v], ...]]}`.
 - `motion_motif`: `{"kind": "none"|"feathers_bubbles"|"cyber_stars"|"petals"|"embers"|"snowflakes", "color1": "auto"|[r,g,b], "color2": "auto"|[r,g,b]}` (or bare string).
 

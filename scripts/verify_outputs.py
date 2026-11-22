@@ -15,6 +15,9 @@ UNREPLACED_TOKENS = (
     "__SUBTITLE__",
     "__STUDIO_BG_LABEL__",
     "__UI_ACCENT__",
+    "__UI_ACCENT_RGB__",
+    "__UI_ACCENT_DEEP__",
+    "__STUDIO_RGB__",
     "__META_JSON__",
     "__ASSETS_JSON__",
 )

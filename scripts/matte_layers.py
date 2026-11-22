@@ -39,7 +39,7 @@ def resolve_fallback_frame(fallback_name: str | None) -> Path:
 
 
 def detect_key_mode(img_path: Path) -> str:
-    """Auto-detect native RGBA, chroma screen (green/magenta/blue), uniform solid backdrop, or GrabCut."""
+    """Auto-detect native RGBA, chroma screen (green/magenta/blue), uniform solid backdrop, or full-bleed passthrough ('none')."""
     with Image.open(img_path) as im:
         if im.mode in ("RGBA", "LA", "PA"):
             alpha = np.array(im.convert("RGBA"))[..., 3]
@@ -80,10 +80,10 @@ def detect_key_mode(img_path: Path) -> str:
         return "solid"
 
     print(
-        f"Note: non-uniform backdrop detected (border RGB=({r:.2f},{g:.2f},{b:.2f}), Lab p80={p80_dist:.1f}); "
-        f"using local GrabCut cutout. Inspect 03_processed/cutout_check.png carefully."
+        f"Note: complex/non-uniform backdrop detected (border RGB=({r:.2f},{g:.2f},{b:.2f}), Lab p80={p80_dist:.1f}); "
+        f"keeping full-bleed opaque artwork ('none') with relief depth, frame, and top-coat craft lamination."
     )
-    return "grabcut"
+    return "none"
 
 
 def remove_small_speckles(alpha: np.ndarray, min_area: int) -> np.ndarray:
