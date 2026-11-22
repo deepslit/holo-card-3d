@@ -1,14 +1,29 @@
 # `holo-card-3d` · 3D Holo Quicksand Collector Card Skill (v2.2)
 
+**English** | **[简体中文](README.zh-CN.md)**
+
 Turn any character illustration or reference image into a **3D holographic flowing-quicksand (流麻) SAR/UR collector card** with 11+3 perspective relief mapping, metallic embossed bevels, optional pixel-exact prop light sweeps, and analytical SDF motion motifs — exported as an offline **`60 fps` WebGL2 HTML**, **`~16.7 fps` zero-ghosting transparent WebP**, and **`~16.7 fps` GIF** bundle.
 
-Universal **Agent Skill** (`SKILL.md` standard) & standalone CLI pipeline — compatible with **any agent harness or coding CLI** (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, Trae, etc.).
+Universal **Agent Skill** (`SKILL.md` standard) & standalone CLI pipeline — works with **any agent harness or coding CLI** (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, Trae, etc.).
 
 <p align="center">
   <img src="docs/demo_saintess.gif" width="300" alt="Deep-Sea Saintess · Celestial Staff Gleam & Starlight Feathers" />
   &nbsp;&nbsp;&nbsp;
   <img src="docs/demo_neko.gif" width="300" alt="Neko Y2K · Prism Skateboard Sweep & Cyber Star Shards" />
 </p>
+
+---
+
+## ⚡ Quick Start: Just Copy This Prompt to Your Agent
+
+Attach your character/reference image and send this one-liner to **any coding agent or skill-enabled harness**:
+
+```text
+Download and install the skill from https://github.com/deepslit/holo-card-3d, then use it to turn this image into a 3D holo quicksand collector card.
+```
+
+> - **Already installed?** Just attach an image and say: `Use holo-card-3d to turn this image into a 3D holo quicksand card.`
+> - **Users in China (Gitee Mirror):** Replace the URL with `https://gitee.com/deepslit/holo-card-3d` for faster cloning.
 
 ---
 
@@ -32,7 +47,7 @@ Universal **Agent Skill** (`SKILL.md` standard) & standalone CLI pipeline — co
 
 ---
 
-## Installation & Environment Check
+## Manual Installation & Environment Check
 
 ### 1. Check Environment & Install Dependencies
 ```bash
@@ -62,7 +77,7 @@ git clone https://github.com/deepslit/holo-card-3d.git ~/.cursor/skills/holo-car
 
 ---
 
-## Quick Start (CLI Pipeline)
+## Standalone CLI Pipeline
 
 ```bash
 # 0. Verify Python & dependencies
@@ -98,7 +113,8 @@ python scripts/run_pipeline.py --workdir ./my_card --stage all
 ```text
 holo-card-3d/
 ├── SKILL.md                  # Universal cross-harness agent instructions (v2.2)
-├── README.md                 # Project overview & gallery
+├── README.md                 # Project overview & gallery (English)
+├── README.zh-CN.md           # Project overview & gallery (简体中文)
 ├── requirements.txt          # Verified Python dependency ranges
 ├── LICENSE                   # MIT License
 ├── agents/openai.yaml        # Optional Codex UI metadata
