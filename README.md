@@ -38,7 +38,7 @@ Download and install the skill from https://github.com/deepslit/holo-card-3d, th
 ## Highlights (`v2.3`)
 
 - **Redesigned Museum-Vitrine Web UI + 100% Offline In-Browser GPU Exporter**:
-  - Minimal monochrome dark/light adaptive gallery showcase (`Dark Velvet`, `Pitch Obsidian`, `Gallery White`), architectural corner framing, single-row frosted dock, `H` Zen mode, double-click reset, zero-GC 60fps loop, and `visibilitychange` auto-pause.
+  - Minimal monochrome dark/light adaptive gallery showcase (`Dark Velvet`, `Pitch Obsidian`, `Gallery White`), architectural corner framing, single-row frosted dock, **instant `EN / 中文` bilingual UI toggle** (auto-detects browser locale + optional `ui_lang`), `H` Zen mode, double-click reset, zero-GC 60fps loop, and `visibilitychange` auto-pause.
   - **Live Craft Popover (`工艺`)**: Switch all **6 materials**, **5 lighting rigs**, and **6 holo patterns** in real time at 60fps without re-running Python.
   - **One-Click Offline GPU Export (Non-Overwriting)**: Export your tuned combination directly from the standalone HTML as a `690×960` zero-ghosting transparent animated WebP or `460×640` 256-color Floyd–Steinberg GIF in seconds via WebGL2 FBO + pure-JS RIFF/GIF89a encoders (zero CDN, zero local server, auto-suffixed filenames so original files are never overwritten).
 - **6 Craft Materials × 5 Lighting Rigs × 6 Holo Patterns (WebGL2 & CPU 1:1 Synced)**:

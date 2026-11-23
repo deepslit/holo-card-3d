@@ -1079,11 +1079,16 @@ def build_masks_and_meta(bg_rgb: np.ndarray, mid_rgba: np.ndarray, fg_rgba: np.n
     if bg_preset not in VALID_BG_PRESETS:
         bg_preset = "celestial_nebula"
 
+    ui_lang = str(cfg.get("ui_lang", "auto")).lower().strip()
+    if ui_lang not in ("auto", "zh", "en"):
+        ui_lang = "auto"
+
     meta = {
         "title": str(cfg.get("title", "3D 全息流麻收藏卡")),
         "badge": str(cfg.get("badge", "SAR / UR")),
         "subtitle": str(cfg.get("subtitle", "3D 交互全息流麻卡")),
         "label_mode": label_mode,
+        "ui_lang": ui_lang,
         "studio_bg_label": str(cfg.get("studio_bg_label", "暗绒展台")),
         "holo_pattern": holo_pattern,
         "material_preset": material_preset,

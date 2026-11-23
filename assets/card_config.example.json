@@ -3,6 +3,7 @@
   "badge": "SAR / UR",
   "subtitle": "3D 交互全息流麻卡",
   "label_mode": "page_only",
+  "ui_lang": "auto",
   "studio_bg_label": "暗绒展台",
   "theme_palette": "auto",
   "bg_preset": "celestial_nebula",

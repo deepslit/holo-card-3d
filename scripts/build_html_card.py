@@ -153,7 +153,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   /* Top-left editorial gallery plaque */
   .plaque {
     position: fixed; top: 28px; left: 32px; z-index: 10;
-    pointer-events: none; max-width: min(440px, calc(100vw - 104px));
+    pointer-events: none; max-width: min(440px, calc(100vw - 156px));
     display: flex; flex-direction: column; gap: 6px;
     transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -190,19 +190,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
   .plaque-sub:empty { display: none; }
 
-  /* Top-right minimal Zen toggle */
-  .zen-btn {
+  /* Top-right minimal Language & Zen controls */
+  .top-actions {
     position: fixed; top: 26px; right: 28px; z-index: 20;
-    width: 36px; height: 36px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .lang-btn, .zen-btn {
+    height: 36px; border-radius: 999px;
     display: inline-flex; align-items: center; justify-content: center;
     background: var(--glass-bg); border: 1px solid var(--glass-border);
     box-shadow: inset 0 1px 0 var(--glass-highlight), 0 8px 22px rgba(0, 0, 0, 0.22);
     backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%);
-    color: var(--text-muted); cursor: pointer; padding: 0;
+    color: var(--text-muted); cursor: pointer;
     transition: opacity 0.28s ease, background 0.18s ease, color 0.18s ease, transform 0.14s ease, border-color 0.2s ease;
   }
-  .zen-btn:hover { color: var(--text-main); border-color: var(--glass-highlight); }
-  .zen-btn:active { transform: scale(0.93); }
+  .lang-btn {
+    padding: 0 11px; min-width: 42px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  }
+  .zen-btn { width: 36px; padding: 0; }
+  .lang-btn:hover, .zen-btn:hover { color: var(--text-main); border-color: var(--glass-highlight); }
+  .lang-btn:active, .zen-btn:active { transform: scale(0.93); }
   .zen-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
 
   /* Subtle ephemeral gesture hint */
@@ -321,7 +329,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .craft-pop {
     position: fixed; bottom: 76px; left: 50%; z-index: 16;
     transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
-    width: min(468px, calc(100vw - 24px));
+    width: max-content; max-width: calc(100vw - 24px);
     padding: 12px 14px; border-radius: 18px;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
@@ -333,8 +341,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .craft-pop.open { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
   .craft-row { display: flex; align-items: center; gap: 8px; }
   .craft-lbl {
-    font-size: 11px; font-weight: 500; letter-spacing: 0.06em; color: var(--text-dim);
-    width: 30px; flex-shrink: 0;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.05em; color: var(--text-dim);
+    width: 42px; flex-shrink: 0;
   }
   .craft-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
   .chip {
@@ -389,6 +397,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   body.zen-mode .controls { opacity: 0; transform: translate(-50%, 14px); pointer-events: none; }
   body.zen-mode .craft-pop { opacity: 0; transform: translate(-50%, 14px); pointer-events: none; }
   body.zen-mode .vitrine-corners, body.zen-mode .hint-pill { opacity: 0; }
+  body.zen-mode .lang-btn { opacity: 0; pointer-events: none; }
   body.zen-mode .zen-btn { opacity: 0.24; }
   body.zen-mode .zen-btn:hover { opacity: 0.92; }
 
@@ -401,10 +410,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   @media (max-width: 640px) {
     .vitrine-corners { inset: 12px; }
-    .plaque { top: 20px; left: 20px; max-width: calc(100vw - 82px); gap: 4px; }
+    .plaque { top: 20px; left: 20px; max-width: calc(100vw - 122px); gap: 4px; }
     .plaque-kicker { display: none; }
     .plaque-sub { font-size: 11px; }
-    .zen-btn { top: 18px; right: 18px; width: 34px; height: 34px; }
+    .top-actions { top: 18px; right: 18px; gap: 6px; }
+    .lang-btn { height: 34px; padding: 0 9px; min-width: 38px; font-size: 10.5px; }
+    .zen-btn { width: 34px; height: 34px; }
     .controls {
       bottom: 16px; height: 42px; padding: 4px 8px 4px 4px; gap: 2px;
     }
@@ -434,16 +445,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <p class="plaque-sub">__SUBTITLE__</p>
 </header>
 
-<button class="zen-btn" id="btnZen" title="纯净模式 (H)" aria-label="切换界面显示">
-  <svg id="iconEyeOpen" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
-  <svg id="iconEyeClosed" viewBox="0 0 24 24" style="display:none"><path d="M3 3l18 18"/><path d="M10.6 10.7a2.8 2.8 0 0 0 3.7 3.7"/><path d="M9.4 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16.4 16.4 0 0 1-3.1 4"/><path d="M6.2 7.5A16.7 16.7 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.4 0 2.7-.3 3.9-.8"/></svg>
-</button>
+<div class="top-actions">
+  <button class="lang-btn" id="btnLang" title="Switch to English" aria-label="Switch Language">EN</button>
+  <button class="zen-btn" id="btnZen" title="纯净模式 (H)" aria-label="切换界面显示">
+    <svg id="iconEyeOpen" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+    <svg id="iconEyeClosed" viewBox="0 0 24 24" style="display:none"><path d="M3 3l18 18"/><path d="M10.6 10.7a2.8 2.8 0 0 0 3.7 3.7"/><path d="M9.4 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16.4 16.4 0 0 1-3.1 4"/><path d="M6.2 7.5A16.7 16.7 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.4 0 2.7-.3 3.9-.8"/></svg>
+  </button>
+</div>
 
 <div class="hint-pill" id="hintPill">悬停或拖拽赏卡 · 双击归零 · H 隐藏界面</div>
 
 <div class="craft-pop" id="craftPop" role="dialog" aria-label="材质、光影与底纹实时切换">
   <div class="craft-row">
-    <span class="craft-lbl">材质</span>
+    <span class="craft-lbl" id="lblMat">材质</span>
     <div class="craft-chips" id="matChips">
       <button class="chip" data-mat="0">流麻 SAR</button>
       <button class="chip" data-mat="1">亚克力砖</button>
@@ -454,7 +468,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </div>
   <div class="craft-row">
-    <span class="craft-lbl">光影</span>
+    <span class="craft-lbl" id="lblLit">光影</span>
     <div class="craft-chips" id="litChips">
       <button class="chip" data-lit="0">展柜均衡</button>
       <button class="chip" data-lit="1">戏剧轮廓</button>
@@ -464,7 +478,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </div>
   <div class="craft-row">
-    <span class="craft-lbl">底纹</span>
+    <span class="craft-lbl" id="lblHolo">底纹</span>
     <div class="craft-chips" id="holoChips">
       <button class="chip" data-holo="0">星芒</button>
       <button class="chip" data-holo="1">棱镜格</button>
@@ -476,15 +490,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
   <div class="craft-divider"></div>
   <div class="craft-row">
-    <span class="craft-lbl">导出</span>
+    <span class="craft-lbl" id="lblExp">导出</span>
     <div class="craft-export">
       <button class="exp-btn primary" id="btnExpWebp" title="离线导出 690×960 透明零残影动图 WebP（不覆盖原文件）">
         <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-        <span>透明 WebP</span>
+        <span id="expWebpLbl">透明 WebP</span>
       </button>
       <button class="exp-btn" id="btnExpGif" title="离线导出 460×640 当前背景动图 GIF（不覆盖原文件）">
         <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-        <span>动图 GIF</span>
+        <span id="expGifLbl">动图 GIF</span>
       </button>
       <button class="exp-btn" id="btnCopyCfg" title="复制当前工艺配置 JSON 片段">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -502,7 +516,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <button class="btn active" id="btnOrbit" title="自动巡航 (Space)">
     <span class="status-dot"></span>
     <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="4.2" transform="rotate(-24 12 12)"/><circle cx="12" cy="12" r="2.2"/></svg>
-    <span class="lbl-hide-sm">巡航</span>
+    <span class="lbl-hide-sm" id="orbitLbl">巡航</span>
   </button>
   <button class="btn icon-only" id="btnReset" title="归零 0° (双击画布)" aria-label="归零角度">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
@@ -523,12 +537,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </button>
   <button class="btn" id="btnCraft" title="实时切换材质、光影与底纹">
     <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="var(--glass-bg)"/><circle cx="15" cy="17" r="2.2" fill="var(--glass-bg)"/></svg>
-    <span class="lbl-hide-sm">工艺</span>
+    <span class="lbl-hide-sm" id="craftLbl">工艺</span>
   </button>
 
   <span class="dock-sep" aria-hidden="true"></span>
 
-  <label class="holo-ctrl" title="调整全息闪度">
+  <label class="holo-ctrl" id="holoCtrl" title="调整全息闪度">
     <svg viewBox="0 0 24 24"><path d="M12 2.5 14.3 9.7 21.5 12 14.3 14.3 12 21.5 9.7 14.3 2.5 12 9.7 9.7 12 2.5Z"/></svg>
     <input type="range" class="holo-range" id="holoRange" min="0.2" max="1.6" step="0.05" value="1.05" aria-label="全息闪度">
     <span class="holo-val" id="holoVal">105%</span>
@@ -1706,6 +1720,7 @@ async function init() {
   });
 
   const btnOrbit = document.getElementById("btnOrbit");
+  const orbitLbl = document.getElementById("orbitLbl");
   const btnGyro = document.getElementById("btnGyro");
   const btnReset = document.getElementById("btnReset");
   const btnBg = document.getElementById("btnBg");
@@ -1714,15 +1729,134 @@ async function init() {
   const btnQual = document.getElementById("btnQual");
   const qualLabel = document.getElementById("qualLabel");
   const btnCraft = document.getElementById("btnCraft");
+  const craftLbl = document.getElementById("craftLbl");
   const craftPop = document.getElementById("craftPop");
+  const holoCtrl = document.getElementById("holoCtrl");
   const matChips = document.querySelectorAll("#matChips .chip");
   const litChips = document.querySelectorAll("#litChips .chip");
   const holoChips = document.querySelectorAll("#holoChips .chip");
   const holoRange = document.getElementById("holoRange");
   const holoVal = document.getElementById("holoVal");
+  const btnLang = document.getElementById("btnLang");
   const btnZen = document.getElementById("btnZen");
   const iconEyeOpen = document.getElementById("iconEyeOpen");
   const iconEyeClosed = document.getElementById("iconEyeClosed");
+  const lblMat = document.getElementById("lblMat");
+  const lblLit = document.getElementById("lblLit");
+  const lblHolo = document.getElementById("lblHolo");
+  const lblExp = document.getElementById("lblExp");
+  const expWebpLbl = document.getElementById("expWebpLbl");
+  const expGifLbl = document.getElementById("expGifLbl");
+
+  const hasCjk = (s) => /[\u3400-\u9fff]/.test(String(s || ""));
+  const customStudioEn = (META.studio_bg_label && !hasCjk(META.studio_bg_label)) ? META.studio_bg_label : "Dark Velvet";
+  const I18N = {
+    zh: {
+      htmlLang: "zh-CN",
+      langBtn: "EN",
+      langTitle: "Switch to English",
+      zenTitle: "纯净模式 (H)",
+      zenAria: "切换界面显示",
+      hint: "悬停或拖拽赏卡 · 双击归零 · H 隐藏界面",
+      craftAria: "材质、光影与底纹实时切换",
+      controlsAria: "3D 卡片控制栏",
+      orbit: "巡航",
+      orbitTitle: "自动巡航 (Space)",
+      resetTitle: "归零 0° (双击画布)",
+      resetAria: "归零角度",
+      gyroTitle: "陀螺仪倾摆",
+      gyroAria: "陀螺仪倾摆",
+      bgTitle: "切换展台背景",
+      bgNames: [META.studio_bg_label || "暗绒展台", "黑曜纯黑", "画廊亮白"],
+      qualTitle: "切换渲染清晰度",
+      qualSmooth: "流畅",
+      qualHi: "高清",
+      craft: "工艺",
+      craftTitle: "实时切换材质、光影与底纹",
+      holoTitle: "调整全息闪度",
+      lblMat: "材质",
+      lblLit: "光影",
+      lblHolo: "底纹",
+      lblExp: "导出",
+      mats: ["流麻 SAR", "亚克力砖", "碎冰闪", "浮雕箔", "丝绒烫金", "纯净闪卡"],
+      lits: ["展柜均衡", "戏剧轮廓", "暖阳鎏金", "冷月幽光", "柔光箱"],
+      holos: ["星芒", "棱镜格", "星海波", "碎冰晶", "斜向拉丝", "菱格暗纹"],
+      expWebp: "透明 WebP",
+      expWebpTitle: "离线导出 690×960 透明零残影动图 WebP（不覆盖原文件）",
+      expGif: "动图 GIF",
+      expGifTitle: "离线导出 460×640 当前背景动图 GIF（不覆盖原文件）",
+      copyCfg: "复制参数",
+      copyCfgTitle: "复制当前工艺配置 JSON 片段",
+      copied: "已复制",
+      expPrep: "准备中…",
+      expWebpEnc: (i, n) => `透明 WebP 编码中 ${i} / ${n}`,
+      expWebpMux: "封装零残影 WebP 容器…",
+      expWebpUnsup: "当前浏览器不支持原生 WebP 编码，请使用 Chrome / Edge / Firefox 或导出 GIF。",
+      expGifPal: "分析 256 色最优调色板…",
+      expGifEnc: (i, n) => `动图 GIF 编码中 ${i} / ${n}`,
+      expDone: (f) => `已导出 ${f}`,
+      expFail: (m) => `导出失败：${m}`,
+    },
+    en: {
+      htmlLang: "en",
+      langBtn: "中文",
+      langTitle: "切换为中文",
+      zenTitle: "Zen Mode (H)",
+      zenAria: "Toggle HUD visibility",
+      hint: "Hover or drag to tilt · Double-click to reset · Press H for Zen",
+      craftAria: "Live craft, lighting & holo studio",
+      controlsAria: "3D card controls",
+      orbit: "Orbit",
+      orbitTitle: "Auto-Orbit (Space)",
+      resetTitle: "Reset 0° (Double-click)",
+      resetAria: "Reset angle",
+      gyroTitle: "Gyroscope Tilt",
+      gyroAria: "Gyroscope Tilt",
+      bgTitle: "Switch showcase backdrop",
+      bgNames: [customStudioEn, "Pitch Obsidian", "Gallery White"],
+      qualTitle: "Toggle render resolution",
+      qualSmooth: "Smooth",
+      qualHi: "Hi-Res",
+      craft: "Craft",
+      craftTitle: "Switch material, lighting & holo live",
+      holoTitle: "Holo Intensity",
+      lblMat: "Craft",
+      lblLit: "Light",
+      lblHolo: "Holo",
+      lblExp: "Export",
+      mats: ["SAR Quicksand", "Acrylic Brick", "Cracked Ice", "Etched Foil", "Matte Foil", "Clean TCG"],
+      lits: ["Gallery", "Dramatic Rim", "Golden Hour", "Moonlit Prism", "Soft Pastel"],
+      holos: ["Starburst", "Prism Grid", "Cosmos", "Cracked Ice", "Diagonal", "Diamond"],
+      expWebp: "Transparent WebP",
+      expWebpTitle: "Export 690×960 zero-ghosting transparent WebP offline (non-overwriting)",
+      expGif: "Animated GIF",
+      expGifTitle: "Export 460×640 animated GIF offline with current backdrop (non-overwriting)",
+      copyCfg: "Copy JSON",
+      copyCfgTitle: "Copy current craft preset JSON snippet",
+      copied: "Copied",
+      expPrep: "Preparing…",
+      expWebpEnc: (i, n) => `Encoding WebP ${i} / ${n}`,
+      expWebpMux: "Muxing zero-ghosting WebP…",
+      expWebpUnsup: "Native WebP encoding is unavailable in this browser. Use Chrome / Edge / Firefox or export GIF.",
+      expGifPal: "Building 256-color palette…",
+      expGifEnc: (i, n) => `Encoding GIF ${i} / ${n}`,
+      expDone: (f) => `Exported ${f}`,
+      expFail: (m) => `Export failed: ${m}`,
+    },
+  };
+
+  function resolveInitialLang() {
+    try {
+      const saved = localStorage.getItem("holo_card_ui_lang");
+      if (saved === "zh" || saved === "en") return saved;
+    } catch {}
+    const cfgLang = String(META.ui_lang || "auto").toLowerCase().trim();
+    if (cfgLang === "zh" || cfgLang === "en") return cfgLang;
+    const nav = String(navigator.language || "zh").toLowerCase();
+    return nav.startsWith("zh") ? "zh" : "en";
+  }
+  let curLang = resolveInitialLang();
+  const T = () => I18N[curLang] || I18N.zh;
 
   function toggleOrbit() {
     forcedPose = null;
@@ -1750,7 +1884,6 @@ async function init() {
   btnReset.onclick = resetView;
   btnZen.onclick = toggleZen;
 
-  const bgNames = [META.studio_bg_label || "暗绒展台", "黑曜纯黑", "画廊亮白"];
   const studioSw = META.studio_color_rgb || [24, 38, 66];
   const bgSwatches = [
     `rgb(${Math.min(255, Math.round(studioSw[0] * 0.45 + 24))}, ${Math.min(255, Math.round(studioSw[1] * 0.45 + 26))}, ${Math.min(255, Math.round(studioSw[2] * 0.45 + 32))})`,
@@ -1761,7 +1894,7 @@ async function init() {
 
   function applyBgMode(mode) {
     bgMode = ((mode % 3) + 3) % 3;
-    bgLabel.textContent = bgNames[bgMode];
+    bgLabel.textContent = T().bgNames[bgMode];
     bgSwatch.style.background = bgSwatches[bgMode];
     document.body.classList.toggle("theme-light", bgMode === 2);
     if (forcedPose || !rafId) drawNow();
@@ -1770,7 +1903,7 @@ async function init() {
 
   btnQual.onclick = () => {
     highQual = !highQual;
-    qualLabel.textContent = highQual ? "高清" : "流畅";
+    qualLabel.textContent = highQual ? T().qualHi : T().qualSmooth;
     btnQual.classList.toggle("active", highQual);
     resize();
     if (forcedPose || !rafId) drawNow();
@@ -1793,6 +1926,57 @@ async function init() {
   const expPct = document.getElementById("expPct");
   const expFill = document.getElementById("expFill");
 
+  function applyLang(lang, persist = true) {
+    curLang = lang === "en" ? "en" : "zh";
+    if (persist) {
+      try { localStorage.setItem("holo_card_ui_lang", curLang); } catch {}
+    }
+    const tr = T();
+    document.documentElement.lang = tr.htmlLang;
+    btnLang.textContent = tr.langBtn;
+    btnLang.title = tr.langTitle;
+    btnZen.title = tr.zenTitle;
+    btnZen.setAttribute("aria-label", tr.zenAria);
+    if (hintPill) hintPill.textContent = tr.hint;
+    craftPop.setAttribute("aria-label", tr.craftAria);
+    document.getElementById("controls").setAttribute("aria-label", tr.controlsAria);
+    orbitLbl.textContent = tr.orbit;
+    btnOrbit.title = tr.orbitTitle;
+    btnReset.title = tr.resetTitle;
+    btnReset.setAttribute("aria-label", tr.resetAria);
+    btnGyro.title = tr.gyroTitle;
+    btnGyro.setAttribute("aria-label", tr.gyroAria);
+    btnBg.title = tr.bgTitle;
+    bgLabel.textContent = tr.bgNames[bgMode];
+    btnQual.title = tr.qualTitle;
+    qualLabel.textContent = highQual ? tr.qualHi : tr.qualSmooth;
+    craftLbl.textContent = tr.craft;
+    btnCraft.title = tr.craftTitle;
+    holoCtrl.title = tr.holoTitle;
+    holoRange.setAttribute("aria-label", tr.holoTitle);
+    lblMat.textContent = tr.lblMat;
+    lblLit.textContent = tr.lblLit;
+    lblHolo.textContent = tr.lblHolo;
+    lblExp.textContent = tr.lblExp;
+    matChips.forEach((b) => { const i = Number(b.dataset.mat); if (tr.mats[i]) b.textContent = tr.mats[i]; });
+    litChips.forEach((b) => { const i = Number(b.dataset.lit); if (tr.lits[i]) b.textContent = tr.lits[i]; });
+    holoChips.forEach((b) => { const i = Number(b.dataset.holo); if (tr.holos[i]) b.textContent = tr.holos[i]; });
+    expWebpLbl.textContent = tr.expWebp;
+    btnExpWebp.title = tr.expWebpTitle;
+    expGifLbl.textContent = tr.expGif;
+    btnExpGif.title = tr.expGifTitle;
+    copyCfgLbl.textContent = tr.copyCfg;
+    btnCopyCfg.title = tr.copyCfgTitle;
+    if (!isExporting && !expStatus.classList.contains("show")) {
+      expTxt.textContent = tr.expPrep;
+    }
+  }
+  applyLang(curLang, false);
+  btnLang.onclick = (e) => {
+    e.stopPropagation();
+    applyLang(curLang === "zh" ? "en" : "zh", true);
+  };
+
   function setCraftOpen(open) {
     if (!open && isExporting) return;
     craftPop.classList.toggle("open", open);
@@ -1805,7 +1989,7 @@ async function init() {
   };
   craftPop.addEventListener("pointerdown", (e) => e.stopPropagation());
   document.addEventListener("pointerdown", (e) => {
-    if (!isExporting && craftPop.classList.contains("open") && !craftPop.contains(e.target) && !btnCraft.contains(e.target)) {
+    if (!isExporting && craftPop.classList.contains("open") && !craftPop.contains(e.target) && !btnCraft.contains(e.target) && !btnLang.contains(e.target)) {
       setCraftOpen(false);
     }
   });
@@ -2150,21 +2334,21 @@ async function init() {
           imgData.data.set(flipBuf);
           ctx.putImageData(imgData, 0, 0);
           const blob = await new Promise((res) => c2d.toBlob(res, "image/webp", 0.88));
-          if (!blob) throw new Error("当前浏览器不支持原生 WebP 编码，请使用 Chrome / Edge / Firefox 或导出 GIF。");
+          if (!blob) throw new Error(T().expWebpUnsup);
           frameWebps.push(new Uint8Array(await blob.arrayBuffer()));
           if (i % 3 === 0 || i === NUM_FRAMES - 1) {
-            setExportProgress(`透明 WebP 编码中 ${i + 1} / ${NUM_FRAMES}`, ((i + 1) / NUM_FRAMES) * 95);
+            setExportProgress(T().expWebpEnc(i + 1, NUM_FRAMES), ((i + 1) / NUM_FRAMES) * 95);
             await new Promise((r) => setTimeout(r, 0));
           }
         }
-        setExportProgress("封装零残影 WebP 容器…", 98);
+        setExportProgress(T().expWebpMux, 98);
         const outBlob = muxAnimatedWebP(frameWebps, expW, expH, DUR_MS);
         const fname = buildExportFilename("webp");
         triggerDownload(outBlob, fname);
-        setExportProgress(`已导出 ${fname}`, 100);
+        setExportProgress(T().expDone(fname), 100);
       } else {
         // Pass 1: Sample 8 keyframes to build optimal shared 256-color Median-Cut palette
-        setExportProgress("分析 256 色最优调色板…", 5);
+        setExportProgress(T().expGifPal, 5);
         await new Promise((r) => setTimeout(r, 0));
         const sampleFrames = [0, 10, 21, 31, 42, 52, 63, 73];
         const stepPx = 19;
@@ -2200,7 +2384,7 @@ async function init() {
           quantizeFrameFS(flipBuf, expW, expH, gifPal, lut, idxBuf);
           chunks.push(gce, imgDesc, lzwEncodeGif(idxBuf));
           if (i % 2 === 0 || i === NUM_FRAMES - 1) {
-            setExportProgress(`动图 GIF 编码中 ${i + 1} / ${NUM_FRAMES}`, 10 + ((i + 1) / NUM_FRAMES) * 88);
+            setExportProgress(T().expGifEnc(i + 1, NUM_FRAMES), 10 + ((i + 1) / NUM_FRAMES) * 88);
             await new Promise((r) => setTimeout(r, 0));
           }
         }
@@ -2208,10 +2392,10 @@ async function init() {
         const outBlob = new Blob(chunks, { type: "image/gif" });
         const fname = buildExportFilename("gif");
         triggerDownload(outBlob, fname);
-        setExportProgress(`已导出 ${fname}`, 100);
+        setExportProgress(T().expDone(fname), 100);
       }
     } catch (err) {
-      setExportProgress("导出失败：" + (err && err.message ? err.message : String(err)), 0);
+      setExportProgress(T().expFail(err && err.message ? err.message : String(err)), 0);
     } finally {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.deleteFramebuffer(fbo);
@@ -2244,8 +2428,8 @@ async function init() {
       document.execCommand("copy");
       ta.remove();
     }
-    copyCfgLbl.textContent = "已复制";
-    setTimeout(() => { copyCfgLbl.textContent = "复制参数"; }, 1800);
+    copyCfgLbl.textContent = T().copied;
+    setTimeout(() => { copyCfgLbl.textContent = T().copyCfg; }, 1800);
   };
   matChips.forEach((b) => {
     b.onclick = () => {
@@ -2327,6 +2511,7 @@ async function init() {
     glOk: true,
     shaderError: null,
     setBgMode: (m) => applyBgMode(m),
+    setLang: (l) => applyLang(l, false),
     setPresets: (opts = {}) => {
       if (opts.material !== undefined) {
         materialPresetId = typeof opts.material === "number" ? opts.material : (MAT_MAP[String(opts.material).toLowerCase()] ?? materialPresetId);
@@ -2358,7 +2543,7 @@ async function init() {
       manualHold = false;
       btnOrbit.classList.remove("active");
       forcedPose = { yaw: yawDeg, pitch: pitchDeg, time: timeVal ?? (yawDeg / 24.0) };
-      curYaw = yawDeg; curPitch = pitchDeg;
+      curYaw = yawDeg; curPitch = pitchDeg; timeAcc = forcedPose.time;
       targetYaw = yawDeg; targetPitch = pitchDeg;
       if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       drawNow();
@@ -2386,7 +2571,7 @@ async function init() {
       manualHold = false;
       btnOrbit.classList.remove("active");
       forcedPose = { yaw: yawDeg, pitch: pitchDeg, time: timeVal ?? (yawDeg / 24.0) };
-      curYaw = yawDeg; curPitch = pitchDeg;
+      curYaw = yawDeg; curPitch = pitchDeg; timeAcc = forcedPose.time;
       targetYaw = yawDeg; targetPitch = pitchDeg;
       if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       drawNow();
