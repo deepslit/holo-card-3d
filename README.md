@@ -15,7 +15,9 @@ Universal **Agent Skill** (`SKILL.md` standard) & standalone CLI pipeline — wo
 ### Interactive Museum-Vitrine Web UI & Live Craft Studio (`v2.3`)
 
 <p align="center">
-  <img src="docs/demo_web_ui.gif" width="760" alt="Museum-Vitrine Web UI · Live Craft Switching (Cracked Ice / Prism Grid / Acrylic Brick), Dark & Light Gallery Themes, Zen Mode & Offline GPU Export" />
+  <img src="docs/demo_web_ui.webp" width="760" alt="Museum-Vitrine Web UI · Live Craft Switching (Cracked Ice / Prism Grid / Acrylic Brick), Dark & Light Gallery Themes, Zen Mode & Offline GPU Export" />
+  <br />
+  <sub>20 fps seamless preview · <a href="docs/demo_web_ui.mp4">Download 30 fps HD MP4 (1040×660)</a></sub>
 </p>
 
 ---

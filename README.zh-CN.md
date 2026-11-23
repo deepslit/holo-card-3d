@@ -15,7 +15,9 @@
 ### 展柜级 Web 交互界面与实时工艺试看 (`v2.3`)
 
 <p align="center">
-  <img src="docs/demo_web_ui.gif" width="760" alt="展柜级 Web 交互界面 · 实时切换碎冰闪/棱镜格/亚克力砖、深色暗绒与画廊亮白双主题、纯净模式与离线 GPU 导出" />
+  <img src="docs/demo_web_ui.webp" width="760" alt="展柜级 Web 交互界面 · 实时切换碎冰闪/棱镜格/亚克力砖、深色暗绒与画廊亮白双主题、纯净模式与离线 GPU 导出" />
+  <br />
+  <sub>20 fps 无缝循环预览 · <a href="docs/demo_web_ui.mp4">查看 / 下载 30 fps 高清 MP4（1040×660）</a></sub>
 </p>
 
 ---
