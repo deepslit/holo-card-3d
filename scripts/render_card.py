@@ -489,6 +489,12 @@ def _init_worker(proc_dir_str: str, num_frames: int):
     studio_bg = np.clip(s_col[None, None, :] * (0.65 + 0.85 * vig) + (aura_c * 0.06)[None, None, :] * vig, 0.0, 1.0)
 
     prop_mask_img = np.zeros((AH, AW), dtype=np.float32)
+    bo_on = bool((meta.get("breakout") or {}).get("enabled")) and (proc_dir / "breakout_mask.png").exists()
+    bo_mask_img = np.zeros((AH, AW), dtype=np.float32)
+    bo_shadow_img = np.zeros((AH, AW), dtype=np.float32)
+    if bo_on:
+        bo_mask_img = np.array(Image.open(proc_dir / "breakout_mask.png").convert("L").resize((AW, AH), Image.Resampling.LANCZOS), dtype=np.float32) / 255.0
+        bo_shadow_img = cv2.GaussianBlur(mid_raw[..., 3] * bo_mask_img, (0, 0), 5.0)
     pm_path = proc_dir / "prop_mask.png"
     if pm_path.exists() and (meta.get("prop_fx") or {}).get("enabled"):
         prop_mask_img = np.array(Image.open(pm_path).convert("L").resize((AW, AH), Image.Resampling.LANCZOS), dtype=np.float32) / 255.0
@@ -505,6 +511,9 @@ def _init_worker(proc_dir_str: str, num_frames: int):
         "mid_raw": mid_raw,
         "masks_raw": masks_raw,
         "prop_mask": prop_mask_img,
+        "breakout_on": bo_on,
+        "breakout_mask": bo_mask_img,
+        "breakout_shadow": bo_shadow_img,
         "ice_map": ice_map,
         "bg_dof": bg_dof,
         "fg_dof": fg_dof,
@@ -876,6 +885,14 @@ def render_single_frame(f_idx: int):
         fg_acc_a = np.clip(fg_acc_a + fa * (1.0 - fg_acc_a), 0.0, 1.0)
 
     card_rgb = card_rgb * (1.0 - fg_acc_a[..., None]) + fg_acc_rgb * fg_acc_a[..., None]
+
+    # 4b. Break-the-frame: masked parts of the subject are drawn again OVER the frame, with a soft contact shadow.
+    if _CTX["breakout_on"]:
+        bo_a = sample_bilinear(_CTX["breakout_mask"], um, vm, border_mode=cv2.BORDER_CONSTANT) * m_a
+        ug_b, vg_b = plane_uv(0.0)
+        bo_sh = sample_bilinear(_CTX["breakout_shadow"], ug_b + light_loc[0] * 0.014, vg_b + light_loc[1] * 0.014, border_mode=cv2.BORDER_CONSTANT)
+        card_rgb *= 1.0 - 0.34 * (bo_sh * fg_acc_a * (1.0 - bo_a))[..., None]
+        card_rgb = card_rgb * (1.0 - bo_a[..., None]) + np.clip(m_lit, 0.0, 1.0) * bo_a[..., None]
 
     # 5. Post-Composite Surface Lamination & Craft Coat + Diagonal Glass Sweep (face-protected!)
     ug, vg = plane_uv(0.0)

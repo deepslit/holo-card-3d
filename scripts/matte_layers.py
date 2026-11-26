@@ -33,8 +33,14 @@ def resolve_fallback_frame(fallback_name: str | None) -> Path:
     if name.lower().endswith(".png"):
         name = name[:-4]
     cand = BUILTIN_FRAMES_DIR / f"{name}.png"
+    default = BUILTIN_FRAMES_DIR / "classic_sar_gold.png"
+    if not cand.exists() and not default.exists():
+        # Lite distribution ships without frame PNGs: synthesize all built-in frames once.
+        print(f"Built-in frames missing in {BUILTIN_FRAMES_DIR}; generating them once (~1 min)...")
+        import generate_builtin_frames
+        generate_builtin_frames.main()
     if not cand.exists():
-        cand = BUILTIN_FRAMES_DIR / "classic_sar_gold.png"
+        cand = default
     return cand
 
 

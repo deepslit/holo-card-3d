@@ -16,6 +16,7 @@
   "face_box": "auto",
   "key_color": "auto",
   "seed": 20261121,
+  "breakout": {"enabled": false, "mode": "top", "until_v": 0.62, "feather": 0.05},
   "prop_fx": {
     "enabled": false,
     "start_uv": [0.50, 0.72],

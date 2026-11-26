@@ -1,4 +1,4 @@
-"""Generate 3 crisp, anti-aliased 1200x1600 RGBA fallback collector-card frames into resources/frames/."""
+"""Generate the 8 crisp, anti-aliased 1200x1600 RGBA built-in collector-card frames into assets/frames/."""
 import math
 import sys
 from pathlib import Path
