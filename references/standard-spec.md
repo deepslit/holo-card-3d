@@ -1,4 +1,4 @@
-# Standard Specification (`holo-card-3d` · v2.3)
+# Standard Specification (`holo-card-3d` · v2.4)
 
 Every execution must conform to these verified quality, optical, motion, and verification standards unless the user explicitly overrides a parameter.
 

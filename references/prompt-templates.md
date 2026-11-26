@@ -1,4 +1,4 @@
-# Prompt Templates & Layer Acquisition Guide (`v2.3`)
+# Prompt Templates & Layer Acquisition Guide (`v2.4`)
 
 Load this reference during **Phase 2** when running **Route 2 (Hybrid)** or **Route 3 (Reference-Based AI Redraw)**.
 

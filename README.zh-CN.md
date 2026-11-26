@@ -1,4 +1,4 @@
-# `holo-card-3d` · 3D 全息流麻收藏卡技能 (v2.3)
+# `holo-card-3d` · 3D 全息流麻收藏卡技能 (v2.4)
 
 **[English](README.md)** | **简体中文**
 
@@ -127,7 +127,7 @@ python scripts/run_pipeline.py --workdir ./my_card --stage all
 
 ```text
 holo-card-3d/
-├── SKILL.md                  # 跨 Harness 通用智能体指令 (v2.3)
+├── SKILL.md                  # 跨 Harness 通用智能体指令 (v2.4)
 ├── README.md                 # 英文说明文档
 ├── README.zh-CN.md           # 中文说明文档
 ├── requirements.txt          # Python 依赖版本约束
@@ -159,7 +159,7 @@ holo-card-3d/
 
 [MIT](LICENSE)
 
-## 主题包（v2.3+）
+## 主题包与破框（v2.4 新增）
 
 七套配套的背景 + 边框，单张图、不需要生图也能做出接近四层精修的卡：`gothic_moon` 哥特月夜、`dunhuang_mural` 敦煌壁画、`mecha_hangar` 机库工业、`pixel_quest` 像素冒险、`candy_shop` 糖果小铺、`royal_pet` 皇家萌宠、`toy_capsule` 扭蛋游乐园。
 
