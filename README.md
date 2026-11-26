@@ -160,3 +160,14 @@ holo-card-3d/
 ## License
 
 [MIT](LICENSE)
+
+## Theme packs (v2.3+)
+
+Seven ready-made matching backdrop + frame pairs for cards made from a single image, with no image generation needed: `gothic_moon`, `dunhuang_mural`, `mecha_hangar`, `pixel_quest`, `candy_shop`, `royal_pet`, `toy_capsule`.
+
+```bash
+python scripts/theme_packs.py --list
+python scripts/theme_packs.py --apply gothic_moon --workdir <workdir>
+```
+
+Also new: `"breakout": {"enabled": true}` in `card_config.json` lets the upper part of the subject break out over the frame.

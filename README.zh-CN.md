@@ -158,3 +158,14 @@ holo-card-3d/
 ## 开源协议
 
 [MIT](LICENSE)
+
+## 主题包（v2.3+）
+
+七套配套的背景 + 边框，单张图、不需要生图也能做出接近四层精修的卡：`gothic_moon` 哥特月夜、`dunhuang_mural` 敦煌壁画、`mecha_hangar` 机库工业、`pixel_quest` 像素冒险、`candy_shop` 糖果小铺、`royal_pet` 皇家萌宠、`toy_capsule` 扭蛋游乐园。
+
+```bash
+python scripts/theme_packs.py --list
+python scripts/theme_packs.py --apply gothic_moon --workdir <workdir>
+```
+
+另外新增破框效果：在 `card_config.json` 里设置 `"breakout": {"enabled": true}`，主体上半部分会压在边框之上。
