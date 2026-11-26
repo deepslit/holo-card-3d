@@ -1,4 +1,4 @@
-# `holo-card-3d` · 3D Holo Quicksand Collector Card Skill (v2.3)
+# `holo-card-3d` · 3D Holo Quicksand Collector Card Skill (v2.4)
 
 **English** | **[简体中文](README.zh-CN.md)**
 
@@ -129,7 +129,7 @@ python scripts/run_pipeline.py --workdir ./my_card --stage all
 
 ```text
 holo-card-3d/
-├── SKILL.md                  # Universal cross-harness agent instructions (v2.3)
+├── SKILL.md                  # Universal cross-harness agent instructions (v2.4)
 ├── README.md                 # Project overview & gallery (English)
 ├── README.zh-CN.md           # Project overview & gallery (简体中文)
 ├── requirements.txt          # Verified Python dependency ranges
@@ -161,7 +161,7 @@ holo-card-3d/
 
 [MIT](LICENSE)
 
-## Theme packs (v2.3+)
+## Theme packs & break-the-frame (new in v2.4)
 
 Seven ready-made matching backdrop + frame pairs for cards made from a single image, with no image generation needed: `gothic_moon`, `dunhuang_mural`, `mecha_hangar`, `pixel_quest`, `candy_shop`, `royal_pet`, `toy_capsule`.
 

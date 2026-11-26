@@ -1,4 +1,4 @@
-# Verified dependency minimum versions for holo-card-3d (v2.3)
+# Verified dependency minimum versions for holo-card-3d (v2.4)
 numpy>=1.24.0
 Pillow>=10.0.0
 opencv-python>=4.8.0

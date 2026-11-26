@@ -3,11 +3,11 @@ name: holo-card-3d
 description: "Create 3D holographic and flowing-quicksand (流麻) collector cards from a reference image via zero-image-gen local matting or AI layer redraw, exporting a 3-deliverable bundle (60fps offline WebGL2 HTML, ~16.7fps 690x960 zero-ghosting transparent WebP, and ~16.7fps 460x640 GIF). Use when the user asks to turn an image or character into a 3D holo card, SAR/UR collector card, or interactive quicksand card. Not for general 2D photo editing or video generation."
 metadata:
   short-description: Turn images into 3D holo quicksand HTML, WebP, and GIF cards
-  version: "2.3"
+  version: "2.4.0"
   compatibility: Portable across any SKILL.md-compatible agent harness (Claude Code, Codex, Antigravity, Cursor, Windsurf, Gemini CLI, OpenCode, Cline, GitHub Copilot, etc.) or standalone CLI; requires Python 3.10+ with numpy, Pillow, and opencv-python.
 ---
 
-# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.3)
+# 3D Holo Quicksand Collector Card (`holo-card-3d` · v2.4)
 
 Turn a user-provided image into a standardized 3-layer + relief-depth 3D SAR/UR collector card with holographic foil, flowing quicksand + 3D micro-sequins, metallic bevel frames, optional **1 surgical prop light sweep + 1 analytical SDF motion motif**, and a 3-file deliverable bundle.
 
