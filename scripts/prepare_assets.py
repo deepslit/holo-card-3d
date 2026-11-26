@@ -64,7 +64,8 @@ def build_breakout_mask(cfg: dict, workdir: Path, mid_rgba: np.ndarray, fg_rgba:
     mid_a = mid_rgba[..., 3].astype(np.float32) / 255.0
     fg_a = fg_rgba[..., 3].astype(np.float32) / 255.0
     covered_pct = round(float((mid_a * fg_a).sum() / max(float(mid_a.sum()), 1.0)) * 100.0, 2)
-    info = {"enabled": bool(bo_cfg.get("enabled")), "subject_under_frame_pct": covered_pct}
+    # Full-bleed artwork (mid_mode "none") fills the card; the frame resting on its edge is expected, not a defect.
+    info = {"enabled": bool(bo_cfg.get("enabled")), "subject_under_frame_pct": covered_pct, "mid_full_bleed": bool(float(mid_a.mean()) > 0.97)}
     if not info["enabled"]:
         return None, info
     h, w = mid_a.shape
@@ -1275,7 +1276,7 @@ def main():
     else:
         if bo_path.exists():
             bo_path.unlink()
-        if bo_info["subject_under_frame_pct"] >= 3.0:
+        if bo_info["subject_under_frame_pct"] >= 3.0 and not bo_info["mid_full_bleed"]:
             lint["warnings"].append(
                 f"SUBJECT_UNDER_FRAME: {bo_info['subject_under_frame_pct']}% of the subject is hidden behind the frame "
                 "(set breakout.enabled=true for a break-the-frame pop-out, or re-generate mid with ~12% headroom / a thinner frame)."
