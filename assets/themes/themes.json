@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "themes": {
+    "gothic_moon": {
+      "category": "general",
+      "title_zh": "哥特月夜",
+      "title_en": "Gothic Moon",
+      "description": "silver gothic spire frame, moonlit cathedral window; cold elegant portraits",
+      "lighting_preset": "moonlit_prism",
+      "holo_pattern": "cosmos_waves",
+      "material_preset": "sar_quicksand",
+      "motion_motif": "snowflakes",
+      "sha256": {
+        "bg.jpg": "acec42d3b98de197dcdcacab78f8d0fabd4ec8fe374d360ff1d261246ec58bcf",
+        "fg.webp": "5631ec0a8e9c5efa34839bf893f25b0fde9b63b3309512f95e3e183679c7ed1a"
+      }
+    },
+    "dunhuang_mural": {
+      "category": "general",
+      "title_zh": "敦煌壁画",
+      "title_en": "Dunhuang Mural",
+      "description": "lotus-band mural frame in aged gold, umber fresco wall with a golden halo; Chinese-style subjects",
+      "lighting_preset": "golden_hour",
+      "holo_pattern": "diagonal_foil",
+      "material_preset": "etched_foil",
+      "motion_motif": "embers",
+      "sha256": {
+        "bg.jpg": "110cbaafe718ad220464fbd3d42a2935fe036e86ba83212de74917f86567ac26",
+        "fg.webp": "eef85bc572d0130b26ca3eb85210190a6fe1c7463a4f1af847975dd2318e1a6f"
+      }
+    },
+    "mecha_hangar": {
+      "category": "general",
+      "title_zh": "机库工业",
+      "title_en": "Mecha Hangar",
+      "description": "dark titanium frame with hazard stripes, hangar light strips; mecha, sci-fi, vehicles",
+      "lighting_preset": "dramatic_rim",
+      "holo_pattern": "prism_grid",
+      "material_preset": "sar_quicksand",
+      "motion_motif": "cyber_stars",
+      "sha256": {
+        "bg.jpg": "6d3d272ea4e289642e6a31060021fda842c370b3606e9e5fa87a17fa9cfce1cd",
+        "fg.webp": "76c2ebef0f1d2b995847daaa751233a312625240d181eee24b836797c4b69fda"
+      }
+    },
+    "pixel_quest": {
+      "category": "general",
+      "title_zh": "像素冒险",
+      "title_en": "Pixel Quest",
+      "description": "gold pixel-art game UI frame, pixel night sky and castle; pixel art and retro game characters",
+      "lighting_preset": "gallery_neutral",
+      "holo_pattern": "prism_grid",
+      "material_preset": "clean_tcg",
+      "motion_motif": "cyber_stars",
+      "sha256": {
+        "bg.jpg": "4da8635f20058ed844c2864ce3dd244070ba9b7570efb060e4cd115e14e3eef5",
+        "fg.webp": "b2c18b2470f0f6a05568d5f7589a5bc673748a286f0959fdb0c4eac4d73af695"
+      }
+    },
+    "candy_shop": {
+      "category": "special",
+      "title_zh": "糖果小铺",
+      "title_en": "Candy Shop",
+      "description": "glossy pastel candy-plastic frame, midnight candy shop with a neon donut; cute and chibi subjects",
+      "lighting_preset": "gallery_neutral",
+      "holo_pattern": "diamond_lattice",
+      "material_preset": "acrylic_brick",
+      "motion_motif": "feathers_bubbles",
+      "sha256": {
+        "bg.jpg": "ba379d46e5d66ce6bf784cde32818a3ec735f57bd97fcdba55070af01d1b170e",
+        "fg.webp": "7a94242918ab82627d7e0b9b757aefec69e60f84e1a93f285c92e197e3484ac7"
+      }
+    },
+    "royal_pet": {
+      "category": "special",
+      "title_zh": "皇家萌宠",
+      "title_en": "Royal Pet",
+      "description": "antique gold baroque frame with paw-print medallions, sapphire velvet and a golden sunburst; pet photos",
+      "lighting_preset": "golden_hour",
+      "holo_pattern": "starburst",
+      "material_preset": "sar_quicksand",
+      "motion_motif": "embers",
+      "sha256": {
+        "bg.jpg": "8ecf438018d91be5b86b0dddb61a3c2fabddb6e28c4d376e63058d9d648cd2c8",
+        "fg.webp": "d9b2ef83a6691a9ece3c80d50aa0707a0dcc7413d410835529ffd176d0a22e62"
+      }
+    },
+    "toy_capsule": {
+      "category": "special",
+      "title_zh": "扭蛋游乐园",
+      "title_en": "Toy Capsule",
+      "description": "cream-and-gold toy-capsule frame, night amusement park with a ferris wheel; plush toys and figures",
+      "lighting_preset": "gallery_neutral",
+      "holo_pattern": "starburst",
+      "material_preset": "sar_quicksand",
+      "motion_motif": "cyber_stars",
+      "sha256": {
+        "bg.jpg": "79a4bdaea1abadd098810b8c9821f5e6241e393a15afc3f7a9b34c396cd16e6b",
+        "fg.webp": "d1d829fad71a3d35b54923776481750b87002ac2ab1f3ba66ae509fe172b2b67"
+      }
+    }
+  }
+}

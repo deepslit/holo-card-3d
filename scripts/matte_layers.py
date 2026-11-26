@@ -322,6 +322,22 @@ def solid_backdrop_matte(img_path: Path, is_frame: bool = False) -> np.ndarray:
     ]).astype(np.uint8)
 
 
+def clean_subject_mask(fg: np.ndarray) -> np.ndarray:
+    """Keep only the main subject blob, fill interior holes, and shave ragged edges of a binary cutout mask."""
+    m = (fg > 0.5).astype(np.uint8)
+    n_lab, labels, stats, _ = cv2.connectedComponentsWithStats(m, 8)
+    if n_lab <= 1:
+        return fg
+    m = (labels == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))).astype(np.uint8)
+    h, w = m.shape
+    flood = np.pad(m, 1)  # pad so the outside is one connected region reachable from (0, 0)
+    cv2.floodFill(flood, np.zeros((h + 4, w + 4), np.uint8), (0, 0), 2)
+    m[flood[1:-1, 1:-1] == 0] = 1  # pixels the flood never reached are enclosed holes
+    k = max(3, (min(h, w) // 160) | 1)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return m.astype(np.float32)
+
+
 def grabcut_matte(img_path: Path, is_frame: bool = False) -> np.ndarray:
     """Local OpenCV GrabCut fallback for non-uniform backdrops without requiring external ML weights."""
     with Image.open(img_path) as im:
@@ -340,6 +356,8 @@ def grabcut_matte(img_path: Path, is_frame: bool = False) -> np.ndarray:
     try:
         cv2.grabCut(bgr_small, gc_mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
         fg_small = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
+        if not is_frame:
+            fg_small = clean_subject_mask(fg_small)
     except cv2.error:
         fg_small = np.ones((sh, sw), dtype=np.float32)
 

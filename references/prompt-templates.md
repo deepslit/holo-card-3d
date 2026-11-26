@@ -46,15 +46,15 @@ Also tell the generator that the subject must not contain the key colour, and th
 Replace bracketed `[SUBJECT]`, `[STYLE]`, `[ART_METHOD]`, `[PALETTE]`, and `[THEME_MOTIFS]` with the confirmed details from Phase 1.
 
 ### Layer 1: Foreground Subject (`01_raw_layers/mid.png`) *(Route 3 Redraw Only)*
-Keep whole character + ears + hair + props centered with **~12% headroom and ~8% side margin**: image models routinely deliver less than requested, and the frame occupies the outer band. If the head still ends up behind the frame, enable `breakout` (see §4) instead of regenerating.
+Compose it as **card key art, not a character sheet**: a knee-up or half-body crop in which the subject fills about 80% of the canvas height, the face is large and clearly readable, and the body turns toward the viewer with one hero prop. The lower body may run off the bottom edge (only top and side clipping is linted). Keep **~8% headroom and ~5% side margin**. A small full-body figure with empty margins looks weak on a card. If the head still ends up behind the frame, enable `breakout` (see §4) instead of regenerating.
 
 - **Preferred (Native Transparent RGBA PNG)**:
-  > Transform the character into a [THEME_STYLE] collector-card centerpiece portrait in [ART_METHOD]. Match facial identity and silhouette carefully. Dynamic three-quarter hero pose, ornate [PALETTE] attire and signature accessories, dramatic rim light. Isolated single character ONLY on a **100% transparent background (RGBA alpha=0)**. No card frame, no text, no scenery behind character, 3:4 portrait aspect ratio, **generous ~12% headroom above ears/hair/hat and ~8% margin around all limbs and props so nothing touches canvas edges**.
+  > Transform the character into a [THEME_STYLE] collector-card centerpiece portrait in [ART_METHOD]. Match facial identity and silhouette carefully. Dynamic three-quarter hero pose, ornate [PALETTE] attire and signature accessories, dramatic rim light. Isolated single character ONLY on a **100% transparent background (RGBA alpha=0)**. No card frame, no text, no scenery behind character, 3:4 portrait aspect ratio, **a knee-up or half-body key-art crop: the subject fills about 80% of the canvas height with a large, clearly readable face, the lower body may run off the bottom edge, ~8% headroom above ears/hair/hat and ~5% at the sides**.
 - **Fallback A (Solid Chroma Green `#00FF00` — use when generator lacks true alpha, and subject has no bright green)**:
-  > Same as above, ending with: Isolated single character ONLY centered on a completely flat, solid, unlit neon chroma-key green background (`#00FF00`), zero floor shadow or background glow on the green screen, crisp clean silhouette edges, no card frame, no text, 3:4 portrait aspect ratio, ~12% headroom above ears/hair and ~8% margin on left and right sides.
+  > Same as above, ending with: Isolated single character ONLY centered on a completely flat, solid, unlit neon chroma-key green background (`#00FF00`), zero floor shadow or background glow on the green screen, crisp clean silhouette edges, no card frame, no text, 3:4 portrait aspect ratio, knee-up or half-body crop filling about 80% of the canvas height (the lower body may run off the bottom edge), ~8% headroom above ears/hair and ~5% margin on left and right sides.
 - **Fallback C (Solid Chroma Blue `#0000FF` — use when the subject contains both green and pink / magenta)**: same wording as Fallback A with `blue chroma-key background (#0000FF)`.
 - **Fallback B (Solid Chroma Magenta `#FF00FF` — use when subject contains bright green / emerald tones)**:
-  > Same as above, ending with: Isolated single character ONLY centered on a completely flat, solid, unlit magenta chroma-key background (`#FF00FF`), zero floor shadow or magenta cast on the background, crisp clean silhouette edges, no card frame, no text, 3:4 portrait aspect ratio, ~12% headroom above ears/hair and ~8% margin on left and right sides.
+  > Same as above, ending with: Isolated single character ONLY centered on a completely flat, solid, unlit magenta chroma-key background (`#FF00FF`), zero floor shadow or magenta cast on the background, crisp clean silhouette edges, no card frame, no text, 3:4 portrait aspect ratio, knee-up or half-body crop filling about 80% of the canvas height (the lower body may run off the bottom edge), ~8% headroom above ears/hair and ~5% margin on left and right sides.
 
 ### Layer 2: Deep Atmospheric Background (`01_raw_layers/bg.png`) *(Optional — omit to auto-synthesize procedural backdrop)*
 - **Full-Bleed Backdrop (No Character, No Frame)**:
@@ -80,14 +80,14 @@ Tell the user:
    - **极速 2 图（内置卡框 + 自动浮雕）**：`bg.png` + `mid.png`（套用内置 `classic_sar_gold` / `minimal_platinum` / `cyber_hud_frame` 卡框）。
    - **轻量 3 图（自动浮雕）**：`bg.png` + `mid.png` + `fg.png`（本地 `--auto-depth` 自动生成深度）。
    - **完整 4 图**：`bg.png` + `mid.png` + `fg.png` + `mid_depth.png`（立体浮雕精度最高）。
-3. Format tips: `3:4` portrait preferred (`>= 1024x1365`); leave ~12% headroom above ears/hair and ~8% side margin. Non-3:4 `mid` inputs are automatically fitted with safe margins (`mid_fit: "auto"`) so edges aren't accidentally cropped.
+3. Format tips: `3:4` portrait preferred (`>= 1024x1365`); prefer a knee-up or half-body crop that fills ~80% of the height (the bottom may bleed off); leave ~8% headroom above ears/hair and ~5% side margin. Non-3:4 `mid` inputs are automatically fitted with safe margins (`mid_fit: "auto"`) so edges aren't accidentally cropped.
 
 ---
 
 ### Copy-Ready Single-Image Prompt (give this to users whose agent has no image tool)
 Fill in the subject and style, swap the key colour by the contrast rule above, and tell the user to paste it into any image generator, then save the result as `<workdir>/01_raw_layers/mid.png`:
 
-> 请直接生成一张图片。主体：[主体描述]。画风：[画风描述]。竖版 3:4 比例，只画一个主体，完整居中，头顶留出约 12% 的空隙、左右留出约 8%，任何部分都不要被画面边缘裁切。背景必须是完全均匀的纯色 [#00FF00 绿幕 / #FF00FF 洋红幕 / #0000FF 蓝幕]：没有渐变、阴影、地面、光晕或其他元素。主体身上不要出现背景色，花瓣、丝带、光效等都画成不透明的实体，边缘清晰干净。不要文字、数字、Logo、水印、边框或卡牌框。
+> 请直接生成一张图片。主体：[主体描述]。画风：[画风描述]。竖版 3:4 比例，只画一个主体，采用膝上或半身特写：主体占画面高度约 80%，脸要大而清晰，身体朝向镜头，下半身可以从画面底部出画；头顶留出约 8% 的空隙、左右约 5%。背景必须是完全均匀的纯色 [#00FF00 绿幕 / #FF00FF 洋红幕 / #0000FF 蓝幕]：没有渐变、阴影、地面、光晕或其他元素。主体身上不要出现背景色，花瓣、丝带、光效等都画成不透明的实体，边缘清晰干净。不要文字、数字、Logo、水印、边框或卡牌框。
 
 ---
 
