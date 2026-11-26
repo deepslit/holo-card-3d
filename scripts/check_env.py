@@ -1,4 +1,6 @@
 """Cross-platform environment, Python interpreter, and dependency preflight check (pure stdlib)."""
+from __future__ import annotations  # keep this script importable on Python < 3.10 so it can report the version problem
+
 import argparse
 import ctypes
 import importlib.util

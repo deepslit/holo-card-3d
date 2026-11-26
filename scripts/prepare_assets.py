@@ -40,9 +40,53 @@ def resolve_fallback_frame(fallback_name: str | None) -> Path:
     if name.lower().endswith(".png"):
         name = name[:-4]
     cand = BUILTIN_FRAMES_DIR / f"{name}.png"
+    default = BUILTIN_FRAMES_DIR / "classic_sar_gold.png"
+    if not cand.exists() and not default.exists():
+        # Lite distribution ships without frame PNGs: synthesize all built-in frames once.
+        print(f"Built-in frames missing in {BUILTIN_FRAMES_DIR}; generating them once (~1 min)...")
+        import generate_builtin_frames
+        generate_builtin_frames.main()
     if not cand.exists():
-        cand = BUILTIN_FRAMES_DIR / "classic_sar_gold.png"
+        cand = default
     return cand
+
+
+def build_breakout_mask(cfg: dict, workdir: Path, mid_rgba: np.ndarray, fg_rgba: np.ndarray) -> tuple[np.ndarray | None, dict]:
+    """Break-the-frame mask (mid UV space): where 1, the subject is drawn OVER the frame instead of under it.
+
+    Modes: "top" (default) pops out everything above `until_v` (head, arms, weapon) while the lower
+    body stays tucked behind the frame; "all" pops out the whole subject. A user-painted
+    01_raw_layers/breakout_mask.png (white = over the frame) overrides both.
+    """
+    bo_cfg = cfg.get("breakout") or {}
+    if isinstance(bo_cfg, bool):
+        bo_cfg = {"enabled": bo_cfg}
+    mid_a = mid_rgba[..., 3].astype(np.float32) / 255.0
+    fg_a = fg_rgba[..., 3].astype(np.float32) / 255.0
+    covered_pct = round(float((mid_a * fg_a).sum() / max(float(mid_a.sum()), 1.0)) * 100.0, 2)
+    info = {"enabled": bool(bo_cfg.get("enabled")), "subject_under_frame_pct": covered_pct}
+    if not info["enabled"]:
+        return None, info
+    h, w = mid_a.shape
+    custom = find_layer(workdir / "01_raw_layers", ["breakout_mask"])
+    if custom is not None:
+        mask = np.array(Image.open(custom).convert("L").resize((w, h), Image.Resampling.LANCZOS), dtype=np.float32) / 255.0
+        info["mode"] = "custom"
+    else:
+        mode = str(bo_cfg.get("mode", "top")).lower()
+        if mode == "all":
+            mask = np.ones((h, w), dtype=np.float32)
+        else:
+            mode = "top"
+            until_v = float(bo_cfg.get("until_v", 0.62))
+            feather = max(float(bo_cfg.get("feather", 0.05)), 1e-3)
+            v = (np.arange(h, dtype=np.float32) + 0.5) / h
+            ramp = 1.0 - np.clip((v - until_v) / feather, 0.0, 1.0)
+            mask = np.repeat((ramp * ramp * (3.0 - 2.0 * ramp))[:, None], w, axis=1)
+            info["until_v"] = until_v
+        info["mode"] = mode
+    info["popped_out_pct"] = round(float((mid_a * fg_a * mask).sum() / max(float(mid_a.sum()), 1.0)) * 100.0, 2)
+    return np.clip(mask * 255.0, 0, 255).astype(np.uint8), info
 
 
 def resize_exact_3_4(img: Image.Image, mode: str = "cover") -> Image.Image:
@@ -1222,6 +1266,20 @@ def main():
     meta["warp_matrix"] = [[round(float(v), 6) for v in row] for row in warp_mat]
 
     lint = run_asset_lint(mid_rgba, fg_rgba, orig_mid_size, mid_fit_applied, matte_meta, bg_source)
+    bo_mask, bo_info = build_breakout_mask(cfg, workdir, mid_rgba, fg_rgba)
+    meta["breakout"] = bo_info
+    bo_path = proc_dir / "breakout_mask.png"
+    if bo_mask is not None:
+        Image.fromarray(bo_mask, "L").save(bo_path)
+        print(f"Break-the-frame enabled (mode={bo_info['mode']}): {bo_info['popped_out_pct']}% of the subject now overlaps the frame from above.")
+    else:
+        if bo_path.exists():
+            bo_path.unlink()
+        if bo_info["subject_under_frame_pct"] >= 3.0:
+            lint["warnings"].append(
+                f"SUBJECT_UNDER_FRAME: {bo_info['subject_under_frame_pct']}% of the subject is hidden behind the frame "
+                "(set breakout.enabled=true for a break-the-frame pop-out, or re-generate mid with ~12% headroom / a thinner frame)."
+            )
     meta["asset_lint"] = lint
     for w_msg in lint["warnings"]:
         print(f"LINT WARNING: {w_msg}")

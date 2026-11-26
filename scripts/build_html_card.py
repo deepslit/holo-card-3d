@@ -595,6 +595,7 @@ uniform vec3 u_partCol1;
 uniform vec3 u_partCol2;
 
 uniform int u_propEnabled;
+uniform int u_breakoutOn;
 uniform vec2 u_propStart;
 uniform vec2 u_propTip;
 uniform vec3 u_propTint;
@@ -1020,7 +1021,8 @@ void main() {
       // FRONT-TO-BACK 2: Midground 3D Subject
       vec3 mLit = vec3(0.0);
       float mA = 0.0;
-      if (fgAccA < 0.99) {
+      float boM = 0.0;
+      if (fgAccA < 0.99 || u_breakoutOn == 1) {
         vec2 um = ug;
         bool hitFound = false;
         if (abs(u_yaw) + abs(u_pitch) < 0.12) {
@@ -1125,7 +1127,8 @@ void main() {
 
             vec2 ufSh = planeUV(0.009 * cw, oLoc, dLoc, cw, ch) + lightLoc.xy * 0.018;
             float fgShA = texture(u_fg, clamp(ufSh, 0.0, 1.0)).a * step(0.0, ufSh.x) * step(ufSh.x, 1.0) * step(0.0, ufSh.y) * step(ufSh.y, 1.0);
-            mLit *= (1.0 - 0.18 * fgShA);
+            if (u_breakoutOn == 1) boM = texture(u_propMask, clamp(um, 0.0, 1.0)).g;
+            mLit *= (1.0 - 0.18 * fgShA * (1.0 - boM));
           }
         }
       }
@@ -1192,6 +1195,13 @@ void main() {
 
       cardCol = mix(bgWithSand, clamp(mLit, 0.0, 1.0), mA);
       cardCol = mix(cardCol, fgAccCol, fgAccA);
+      if (u_breakoutOn == 1) {
+        // Break-the-frame: masked parts of the subject go OVER the frame, with a soft contact shadow.
+        vec2 ubo = clamp(ug + lightLoc.xy * 0.014, 0.0, 1.0);
+        float boSh = texture(u_aux, ubo).a * texture(u_propMask, ubo).g;
+        cardCol *= 1.0 - 0.34 * boSh * fgAccA * (1.0 - mA * boM);
+        cardCol = mix(cardCol, clamp(mLit, 0.0, 1.0), mA * boM);
+      }
 
       // Post-composite Surface Lamination & Craft Coat (strictly face-protected via u_faceLock!)
       vec2 ugC = clamp(ug, 0.0, 1.0);
@@ -1476,7 +1486,7 @@ async function init() {
   ["u_res","u_cardSize","u_dCam","u_time","u_yaw","u_pitch","u_hoverY","u_holoGain",
    "u_bgMode","u_transparent","u_holoPattern","u_materialPreset","u_lightingPreset","u_studioCol","u_astroCenter","u_R","u_RT","u_glints","u_glintCount",
    "u_edgeBase","u_edgeSpec","u_metalTint","u_auraCol","u_sandCol1","u_sandCol2","u_seqCols","u_partCol1","u_partCol2",
-   "u_propEnabled","u_propStart","u_propTip","u_propTint","u_propGain","u_motifKind","u_faceLock"].forEach((n) => {
+   "u_propEnabled","u_breakoutOn","u_propStart","u_propTip","u_propTint","u_propGain","u_motifKind","u_faceLock"].forEach((n) => {
     loc[n] = gl.getUniformLocation(prog, n);
   });
 
@@ -1594,6 +1604,7 @@ async function init() {
   setVec3(loc.u_partCol1, p1c, [1.00, 0.88, 0.55]);
   setVec3(loc.u_partCol2, p2c, [0.55, 0.90, 1.00]);
   gl.uniform1i(loc.u_propEnabled, pfx.enabled ? 1 : 0);
+  gl.uniform1i(loc.u_breakoutOn, (META.breakout && META.breakout.enabled) ? 1 : 0);
   const ps = pfx.start_uv || [0.5, 0.7];
   const pt = pfx.tip_uv || [0.5, 0.3];
   gl.uniform2f(loc.u_propStart, ps[0], ps[1]);
@@ -2686,6 +2697,11 @@ def main():
         pm_pil = Image.open(prop_mask_path).convert("L").resize((TEX_W, TEX_H), Image.Resampling.LANCZOS)
     else:
         pm_pil = Image.new("L", (4, 4), 0)
+    bo_path = proc_dir / "breakout_mask.png"
+    if (meta.get("breakout") or {}).get("enabled") and bo_path.exists():
+        # Pack: R = prop mask, G = break-the-frame mask (the shader reads .r and .g separately).
+        bo_pil = Image.open(bo_path).convert("L").resize((TEX_W, TEX_H), Image.Resampling.LANCZOS)
+        pm_pil = Image.merge("RGB", [pm_pil.resize((TEX_W, TEX_H), Image.Resampling.LANCZOS), bo_pil, Image.new("L", (TEX_W, TEX_H), 0)])
 
     assets = {
         "bg": encode_webp_uri(bg_dof, quality=90),
